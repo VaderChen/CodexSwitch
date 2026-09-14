@@ -369,3 +369,41 @@ func openBrowser(target string) error {
 	}
 	return nil
 }
+
+func (s *accountStore) exportFile() error {
+	data, err := json.MarshalIndent(s.list(), "", "  ")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("osascript", "-e", `POSIX path of (choose file name with prompt "匯出 CodexSwitch 帳號" default name "accounts.json")`)
+	out, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+	path := strings.TrimSpace(string(out))
+	return os.WriteFile(path, data, 0600)
+}
+
+func (s *accountStore) importFile() error {
+	out, err := exec.Command("osascript", "-e", `POSIX path of (choose file with prompt "匯入 CodexSwitch 帳號" of type {"public.json"})`).Output()
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(strings.TrimSpace(string(out)))
+	if err != nil {
+		return err
+	}
+	var accounts []Account
+	if err = json.Unmarshal(data, &accounts); err != nil {
+		return fmt.Errorf("匯入 JSON 格式錯誤：%w", err)
+	}
+	for _, a := range accounts {
+		if a.Email == "" || len(a.Auth) == 0 {
+			continue
+		}
+		if err = s.upsert(a); err != nil {
+			return err
+		}
+	}
+	return nil
+}

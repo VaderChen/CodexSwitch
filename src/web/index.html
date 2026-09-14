@@ -16,7 +16,7 @@
       <p class="hint">本機只監聽 127.0.0.1 的一次性 callback，完成後即關閉。</p>
       <p id="message" class="message" role="status"></p>
     </section>
-    <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
+    <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleExportAccounts()">匯出</button><button class="detect" onclick="handleImportAccounts()">匯入</button><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
     <footer><span>CodexSwitch · macOS</span><span>Token 僅儲存在本機設定檔</span></footer>
   </main>
 <div id="dialog" class="dialog-backdrop" hidden><div class="dialog"><h3 id="dialogTitle"></h3><p id="dialogText"></p><div class="dialog-actions"><button id="dialogCancel" class="dialog-cancel">取消</button><button id="dialogOK" class="dialog-ok">確認套用</button></div></div></div>
@@ -42,6 +42,8 @@ async function login() {
   if(result.error) throw new Error(result.error);
   $('email').value='';
   await loadAccounts();
+(function(){ const saved=localStorage.getItem('codexswitch.windowSize'); if(saved){try{const v=JSON.parse(saved);if(v.width&&v.height&&window.setWindowSize)window.setWindowSize(v.width,v.height)}catch(_){}} window.addEventListener('resize',()=>{try{localStorage.setItem('codexswitch.windowSize',JSON.stringify({width:window.innerWidth,height:window.innerHeight}))}catch(_){}}); })();
+document.addEventListener('keydown',e=>{if(e.metaKey&&(e.key==='q'||e.key==='Q'||e.keyCode===81)){e.preventDefault();e.stopImmediatePropagation();if(typeof window.quitApp==='function')window.quitApp();}},true);
   setMessage('Codex 登入成功，帳號已儲存。','success');
  } catch(error) {
   setMessage(error.message||String(error),'error');
@@ -49,6 +51,8 @@ async function login() {
   button.disabled=false; button.classList.remove('loading');
  }
 }
+async function handleExportAccounts(){try{const r=JSON.parse(await window.exportAccounts());if(r.error)throw Error(r.error);setMessage('帳號已匯出。','success')}catch(e){setMessage(e.message||String(e),'error')}}
+async function handleImportAccounts(){try{const r=JSON.parse(await window.importAccounts());if(r.error)throw Error(r.error);await loadAccounts();setMessage('帳號已匯入。','success')}catch(e){setMessage(e.message||String(e),'error')}}
 async function handleDetectCurrent() { try { if (typeof window.detectCurrent !== 'function') throw new Error('偵測服務尚未就緒，請重新啟動 App'); const raw=await window.detectCurrent(); const r=typeof raw==='string'?JSON.parse(raw):raw; if (!r || typeof r !== 'object') throw new Error('偵測服務回傳格式錯誤'); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage('已偵測並儲存目前帳號。','success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
 let applyBusy = false;
 function showDialog(title, text, okLabel='確認套用', confirmMode=true) {

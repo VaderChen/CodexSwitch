@@ -7,3 +7,7 @@
 
 .detect:focus-visible,.use-account:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .dialog-backdrop{position:fixed;inset:0;background:#26324a44;display:grid;place-items:center;z-index:20}.dialog-backdrop[hidden]{display:none}.dialog{width:min(390px,calc(100% - 36px));background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 18px 60px #43527a33}.dialog h3{margin:0 0 10px;color:var(--text);font-size:16px}.dialog p{margin:0;color:var(--muted);line-height:1.6;font-size:13px;white-space:pre-line}.dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px}.dialog-actions button{border-radius:9px;padding:8px 13px;font-size:12px;font-weight:600}.dialog-cancel{background:#f3f5fa;color:var(--muted)}.dialog-ok{background:#eeeaff;color:#6955b0;border:1px solid #d9d0f7}.dialog-ok:hover{background:#e4dcff}
+/* 列表與頁尾貼合 */
+.accounts-section{margin-bottom:0}.account-list+.empty{margin-bottom:0}footer{margin-top:0;padding:20px 0 0;border-top:1px solid var(--line)}
+html,body{min-height:100%;height:100%}body{min-height:100vh}.shell{min-height:100vh;display:flex;flex-direction:column}.accounts-section{flex:0 0 auto}footer{margin-top:0}
+footer{margin-top:auto;padding-bottom:24px}

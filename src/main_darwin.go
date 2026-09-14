@@ -26,7 +26,14 @@ func main() {
 	w := webview.New(true)
 	defer w.Destroy()
 	w.SetTitle("CodexSwitch")
-	w.SetSize(760, 650, webview.HintNone)
+	w.SetSize(760, 500, webview.HintNone)
+	configureNativeWindow(w.Window())
+	w.Bind("setWindowSize", func(width, height int) {
+		if width >= 480 && height >= 360 && width <= 2400 && height <= 1600 {
+			w.SetSize(width, height, webview.HintNone)
+		}
+	})
+	w.Bind("quitApp", func() string { go func() { w.Terminate() }(); return `{"ok":true}` })
 	w.Bind("getAccounts", func() string {
 		a := store.list()
 		out := make([]PublicAccount, 0, len(a))
@@ -62,6 +69,20 @@ func main() {
 		}
 		b, _ := json.Marshal(r)
 		return string(b)
+	})
+	w.Bind("exportAccounts", func() string {
+		if err := store.exportFile(); err != nil {
+			b, _ := json.Marshal(map[string]any{"error": err.Error()})
+			return string(b)
+		}
+		return `{"ok":true}`
+	})
+	w.Bind("importAccounts", func() string {
+		if err := store.importFile(); err != nil {
+			b, _ := json.Marshal(map[string]any{"error": err.Error()})
+			return string(b)
+		}
+		return `{"ok":true}`
 	})
 	w.Bind("deleteAccount", func(id string) string {
 		if err := store.remove(id); err != nil {
