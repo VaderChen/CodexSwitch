@@ -1,0 +1,6 @@
+# Local secrets and generated files
+/ref/
+/dist/
+*.bak
+.DS_Store
+._*

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodexSwitch</title>
+  <style>/* STYLE_PLACEHOLDER */</style>
+</head>
+<body>
+  <main class="shell">
+
+    <section class="card login-card">
+      <div class="section-title"><div><h2>新增帳號</h2><p>按下登入後，會在預設瀏覽器完成 ChatGPT 授權。</p></div><span class="lock">⌁</span></div>
+      <label for="email">ChatGPT 帳號 Email</label>
+      <div class="input-row"><input id="email" type="email" autocomplete="email" placeholder="you@example.com" /><button id="loginButton" onclick="login()"><span class="button-label">開啟瀏覽器登入</span><span class="spinner"></span></button></div>
+      <p class="hint">本機只監聽 127.0.0.1 的一次性 callback，完成後即關閉。</p>
+      <p id="message" class="message" role="status"></p>
+    </section>
+    <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
+    <footer><span>CodexSwitch · macOS</span><span>Token 僅儲存在本機設定檔</span></footer>
+  </main>
+<div id="dialog" class="dialog-backdrop" hidden><div class="dialog"><h3 id="dialogTitle"></h3><p id="dialogText"></p><div class="dialog-actions"><button id="dialogCancel" class="dialog-cancel">取消</button><button id="dialogOK" class="dialog-ok">確認套用</button></div></div></div>
+<script>
+const $ = id => document.getElementById(id);
+function setMessage(text, kind='') { $('message').textContent=text; $('message').className='message '+kind; }
+function esc(value) { return String(value).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function formatDate(value) { if (!value) return ''; const d=new Date(value); return isNaN(d)?'':`最後更新 ${d.toLocaleString('zh-TW',{dateStyle:'medium',timeStyle:'short'})}`; }
+async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
+function render(accounts) { $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account"><div class="avatar">${esc((a.email||'?')[0].toUpperCase())}</div><div class="account-info"><strong>${esc(a.email)}</strong><span>${esc(a.token_type||'Bearer')} · ${formatDate(a.updated_at)}</span></div><span class="connected">已連結</span><button class="use-account" onclick="handleApplyAccount('${esc(a.id)}')">套用</button><button class="delete" title="移除帳號" onclick="removeAccount('${esc(a.id)}')">×</button></article>`).join(''); }
+async function login() {
+ const email=$('email').value.trim();
+ if(!email || !$('email').checkValidity()){setMessage('請輸入有效的 Codex 帳號 Email。','error');$('email').focus();return;}
+ const button=$('loginButton');
+ if(button.disabled) return;
+ try {
+  button.disabled=true; button.classList.add('loading');
+  setMessage('正在開啟瀏覽器，請完成 Codex 授權…');
+  if(typeof window.startLogin!=='function') throw new Error('登入服務尚未就緒，請稍後重試。');
+  const raw=await window.startLogin(email);
+  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  if(!result || typeof result!=='object') throw new Error('登入服務沒有回傳有效結果。');
+  if(result.error) throw new Error(result.error);
+  $('email').value='';
+  await loadAccounts();
+  setMessage('Codex 登入成功，帳號已儲存。','success');
+ } catch(error) {
+  setMessage(error.message||String(error),'error');
+ } finally {
+  button.disabled=false; button.classList.remove('loading');
+ }
+}
+async function handleDetectCurrent() { try { if (typeof window.detectCurrent !== 'function') throw new Error('偵測服務尚未就緒，請重新啟動 App'); const raw=await window.detectCurrent(); const r=typeof raw==='string'?JSON.parse(raw):raw; if (!r || typeof r !== 'object') throw new Error('偵測服務回傳格式錯誤'); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage('已偵測並儲存目前帳號。','success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
+let applyBusy = false;
+function showDialog(title, text, okLabel='確認套用', confirmMode=true) {
+ return new Promise(resolve => {
+  const dialog=$('dialog');
+  $('dialogTitle').textContent=title;
+  $('dialogText').textContent=text;
+  $('dialogOK').textContent=okLabel;
+  $('dialogCancel').hidden=!confirmMode;
+  dialog.hidden=false;
+  const done=value=>{
+   dialog.hidden=true;
+   $('dialogCancel').onclick=null;
+   $('dialogOK').onclick=null;
+   resolve(value);
+  };
+  $('dialogCancel').onclick=()=>done(false);
+  $('dialogOK').onclick=()=>done(true);
+ });
+}
+async function handleApplyAccount(id) {
+ if(applyBusy)return;
+ applyBusy=true;
+ try {
+  const confirmed=await showDialog('套用 Codex 帳號','這會更新帳號資料與環境參數。套用後會依原始目錄啟動 Codex App。是否繼續？');
+  if(!confirmed)return;
+  setMessage('正在更新帳號資料與環境參數…');
+  if(typeof window.useAccount!=='function')throw new Error('套用服務尚未就緒，請重新啟動 CodexSwitch');
+  const raw=await window.useAccount(id);
+  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  if(!result || result.error)throw new Error(result&&result.error||'套用服務回傳格式錯誤');
+  const message='帳號與環境參數已更新，Codex App 已依原始目錄啟動。';
+  setMessage(message,'success');
+  await showDialog('套用完成',message,'關閉',false);
+ } catch(error) {
+  const message=error.message||String(error);
+  setMessage(message,'error');
+  await showDialog('套用失敗',message,'關閉',false);
+ } finally {
+  applyBusy=false;
+ }
+}
+async function removeAccount(id) { if(!confirm('確定要移除此帳號？本機儲存的 token 也會刪除。')) return; try { const r=JSON.parse(await window.deleteAccount(id)); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage('帳號已移除。','success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
+loadAccounts();
+</script>
+</body></html>
