@@ -41,5 +41,5 @@ go run .
 例如：
 
 ```bash
-CODEX_AUTH_FILE="/Users/yourname/.codex/auth.json" ./run.command
+CODEX_AUTH_FILE="$HOME/.codex/auth.json" ./run.command
 ```
