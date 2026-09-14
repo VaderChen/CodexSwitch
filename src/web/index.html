@@ -80,7 +80,7 @@ async function handleApplyAccount(id) {
   const raw=await window.useAccount(id);
   const result=typeof raw==='string'?JSON.parse(raw):raw;
   if(!result || result.error)throw new Error(result&&result.error||'套用服務回傳格式錯誤');
-  const message='帳號與環境參數已更新，Codex App 已依原始目錄啟動。';
+  const message='';
   setMessage(message,'success');
   await showDialog('套用完成',message,'關閉',false);
  } catch(error) {
