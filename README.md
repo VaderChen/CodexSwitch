@@ -4,7 +4,6 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 
 ## 功能與特色
 
-- 使用瀏覽器完成 Codex 帳號登入
 - 管理多個 Codex 帳號
 - 一鍵套用指定帳號
 - 套用前自動處理已開啟的 Codex App
