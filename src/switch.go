@@ -55,10 +55,42 @@ func accountFromAuth(data []byte) (Account, error) {
 	return Account{ID: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.ToLower(claims.Email)))), Email: claims.Email, AccessToken: auth.Tokens.AccessToken, RefreshToken: auth.Tokens.RefreshToken, TokenType: "Bearer", CreatedAt: now, UpdatedAt: now, Auth: append(json.RawMessage(nil), data...)}, nil
 }
 
+// 只讀取目前登入身分，列表更新不會修改已儲存的憑證。
+func (m *loginManager) publicAccounts() []PublicAccount {
+	m.authMu.Lock()
+	defer m.authMu.Unlock()
+	var currentEmail string
+	if path, err := m.activeAuthPath(); err == nil {
+		if data, err := os.ReadFile(path); err == nil {
+			if current, err := accountFromAuth(data); err == nil {
+				currentEmail = current.Email
+			}
+		}
+	}
+	accounts := m.store.list()
+	out := make([]PublicAccount, 0, len(accounts))
+	for _, account := range accounts {
+		item := account.Public()
+		home, data, _ := accountDirectories(account)
+		item.CodexHome, item.UserDataDir = home, data
+		activePath, _ := m.activeAuthPath()
+		var profile activeProfile
+		profileData, _ := os.ReadFile(m.profilePath())
+		_ = json.Unmarshal(profileData, &profile)
+		_, defaultData, _ := accountDirectories(Account{})
+		if profile.UserDataDir == "" {
+			profile.UserDataDir = defaultData
+		}
+		item.IsCurrent = currentEmail != "" && strings.EqualFold(account.Email, currentEmail) && filepath.Join(home, "auth.json") == activePath && data == profile.UserDataDir
+		out = append(out, item)
+	}
+	return out
+}
+
 func (m *loginManager) detectCurrent() (Account, error) {
 	m.authMu.Lock()
 	defer m.authMu.Unlock()
-	path, err := authFilePath()
+	path, err := m.activeAuthPath()
 	if err != nil {
 		return Account{}, err
 	}
@@ -103,6 +135,9 @@ func environmentFile(a Account, authPath string) []byte {
 		"export CODEX_EMAIL=" + shellQuote(a.Email) + "\n" +
 		"export CODEX_ACCESS_TOKEN=" + shellQuote(a.AccessToken) + "\n" +
 		"export CODEX_REFRESH_TOKEN=" + shellQuote(a.RefreshToken) + "\n"
+	if a.UserDataDir != "" {
+		text += "export USER_DATA_DIR=" + shellQuote(a.UserDataDir) + "\n"
+	}
 	if key != "" {
 		text += "export CODEX_API_KEY=" + shellQuote(key) + "\n"
 	}
@@ -147,7 +182,11 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	if target.ID == "" {
 		return switchResult{}, errors.New("找不到此帳號，請重新整理列表")
 	}
-	authPath, err := authFilePath()
+	home, userData, err := accountDirectories(target)
+	if err != nil {
+		return switchResult{}, err
+	}
+	authPath := filepath.Join(home, "auth.json")
 	if err != nil {
 		return switchResult{}, err
 	}
@@ -156,7 +195,11 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 		return switchResult{}, err
 	}
 	// Preserve freshly rotated credentials for the outgoing account before replacement.
-	current, err := os.ReadFile(authPath)
+	outgoingPath, err := m.activeAuthPath()
+	if err != nil {
+		return switchResult{}, err
+	}
+	current, err := os.ReadFile(outgoingPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return switchResult{}, err
 	}
@@ -171,6 +214,7 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 						return switchResult{}, e
 					}
 					if old.ID == id {
+						active.CodexHome, active.UserDataDir = target.CodexHome, target.UserDataDir
 						target = active
 					}
 					break
@@ -207,7 +251,9 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	if filepath.Clean(envPath) == filepath.Clean(authPath) || filepath.Clean(envPath) == filepath.Clean(m.store.path) {
 		return switchResult{}, errors.New("環境設定檔不可與帳號或登入檔使用相同路徑")
 	}
-	if err = replaceFiles([]fileUpdate{{authPath, next}, {envPath, environmentFile(validated, authPath)}}); err != nil {
+	validated.UserDataDir = userData
+	profile, _ := json.Marshal(activeProfile{AuthPath: authPath, UserDataDir: userData})
+	if err = replaceFiles([]fileUpdate{{authPath, next}, {envPath, environmentFile(validated, authPath)}, {m.profilePath(), profile}}); err != nil {
 		return switchResult{}, err
 	}
 	// Start Codex with the same per-process environment model as runMyCodex.command.
@@ -219,15 +265,7 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 		return switchResult{}, fmt.Errorf("設定已更新，但找不到 Codex 執行檔：%s", exe)
 	}
 	cmd := exec.Command(exe)
-	cmd.Env = codexLaunchEnvironment(os.Environ(), filepath.Dir(authPath))
-	userData := os.Getenv("CODEX_USER_DATA_DIR")
-	if userData == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return switchResult{}, err
-		}
-		userData = filepath.Join(home, "Library", "Application Support", "Codex")
-	}
+	cmd.Env = append(codexLaunchEnvironment(os.Environ(), filepath.Dir(authPath)), "USER_DATA_DIR="+userData, "CODEX_USER_DATA_DIR="+userData)
 	cmd.Args = append(cmd.Args, "--user-data-dir="+userData)
 	if err := cmd.Start(); err != nil {
 		return switchResult{}, fmt.Errorf("設定已更新，但無法啟動 Codex App：%w", err)
@@ -362,7 +400,7 @@ func replaceFiles(updates []fileUpdate) error {
 
 // OAuth login is loaded from auth.json; do not override it with inherited automation credentials.
 func codexLaunchEnvironment(inherited []string, home string) []string {
-	blocked := map[string]bool{"CODEX_HOME": true, "CODEX_AUTH_FILE": true, "CODEX_ACCESS_TOKEN": true, "CODEX_REFRESH_TOKEN": true, "CODEX_EMAIL": true, "CODEX_API_KEY": true, "OPENAI_API_KEY": true, "CODEX_AUTH_JSON": true}
+	blocked := map[string]bool{"USER_DATA_DIR": true, "CODEX_USER_DATA_DIR": true, "CODEX_HOME": true, "CODEX_AUTH_FILE": true, "CODEX_ACCESS_TOKEN": true, "CODEX_REFRESH_TOKEN": true, "CODEX_EMAIL": true, "CODEX_API_KEY": true, "OPENAI_API_KEY": true, "CODEX_AUTH_JSON": true}
 	result := []string{}
 	for _, entry := range inherited {
 		key, _, _ := strings.Cut(entry, "=")

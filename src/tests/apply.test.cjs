@@ -6,7 +6,7 @@ const html=fs.readFileSync(require('node:path').join(__dirname,'../web/index.htm
 function setup(backend){
  const elements={};
  for(const id of ['message','count','empty','accountList','dialog','dialogTitle','dialogText','dialogOK','dialogCancel'])elements[id]={hidden:true,style:{}};
- const global={document:{getElementById:id=>elements[id]},useAccount:backend,getAccounts:async()=> '[]',setTimeout};
+ const global={document:{addEventListener(){},getElementById:id=>elements[id]},useAccount:backend,getAccounts:async()=> '[]',setTimeout,clearTimeout};
  // In WebView, window IS the global object. A separate window mock misses collisions.
  global.window=global;
  const context=vm.createContext(global);
@@ -26,7 +26,7 @@ test('confirmation closes; backend called once; success dialog dismisses',async(
  await h.run();assert.equal(calls,1);
  finish('{"email":"test@example.com"}');await flush();
  assert.equal(h.elements.dialogTitle.textContent,'套用完成');
- assert.match(h.elements.dialogText.textContent,/自行重新啟動/);
+ assert.equal(h.elements.dialogOK.textContent,'關閉');
  assert.equal(h.elements.dialogCancel.hidden,true);
  h.elements.dialogOK.onclick();await pending;
  assert.equal(h.elements.dialog.hidden,true);

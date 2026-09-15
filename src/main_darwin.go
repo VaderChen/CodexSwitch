@@ -3,9 +3,11 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/webview/webview_go"
 	"log"
 	"strings"
@@ -34,23 +36,51 @@ func main() {
 		}
 	})
 	w.Bind("quitApp", func() string { go func() { w.Terminate() }(); return `{"ok":true}` })
-	w.Bind("getAccounts", func() string {
-		a := store.list()
-		out := make([]PublicAccount, 0, len(a))
-		for _, item := range a {
-			out = append(out, item.Public())
+	w.Bind("getAccountDefaults", func() map[string]string {
+		home, data, _ := accountDirectories(Account{})
+		return map[string]string{"codex_home": home, "user_data_dir": data}
+	})
+	w.Bind("saveAccountSettings", func(id, home, data string) map[string]any {
+		if err := store.saveSettings(id, home, data); err != nil {
+			return map[string]any{"error": err.Error()}
 		}
-		b, _ := json.Marshal(out)
+		return map[string]any{"ok": true}
+	})
+	w.Bind("getAccounts", func() string {
+		b, _ := json.Marshal(manager.publicAccounts())
 		return string(b)
 	})
+	// 登入在背景執行，避免阻塞 WebView 與取消操作。
+	var cancelLogin context.CancelFunc
 	w.Bind("startLogin", func(email string) string {
-		a, err := manager.start(email)
-		if err != nil {
-			b, _ := json.Marshal(map[string]any{"error": err.Error()})
-			return string(b)
+		if cancelLogin != nil {
+			return `{"error":"已有登入流程進行中"}`
 		}
-		b, _ := json.Marshal(map[string]any{"account": a.Public()})
-		return string(b)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelLogin = cancel
+		go func() {
+			a, err := manager.start(ctx, email)
+			result := map[string]any{"account": a.Public()}
+			if err != nil {
+				result = map[string]any{"error": err.Error()}
+			}
+			if errors.Is(err, context.Canceled) {
+				result = map[string]any{"cancelled": true}
+			}
+			b, _ := json.Marshal(result)
+			w.Dispatch(func() {
+				cancel()
+				cancelLogin = nil
+				w.Eval("window.resolveLogin && window.resolveLogin(" + string(b) + ")")
+			})
+		}()
+		return `{"pending":true}`
+	})
+	w.Bind("cancelLogin", func() string {
+		if cancelLogin != nil {
+			cancelLogin()
+		}
+		return `{"ok":true}`
 	})
 	w.Bind("detectCurrent", func() string {
 		a, err := manager.detectCurrent()

@@ -43,3 +43,30 @@ go run .
 ```bash
 CODEX_AUTH_FILE="$HOME/.codex/auth.json" ./run.command
 ```
+
+## 各帳號目錄設定
+
+點擊帳號左側的齒輪可設定該帳號的 `CODEX_HOME` 與 `USER_DATA_DIR`。
+開啟設定時會顯示完整路徑；留空儲存時會自動填入系統預設值：
+
+- `CODEX_HOME`：`~/.codex`
+- `USER_DATA_DIR`：`~/Library/Application Support/Codex`
+
+支援絕對路徑與 `~/`，設定於下次「套用」生效。套用時將登入檔寫入指定的 `CODEX_HOME/auth.json`，並以指定的 `--user-data-dir` 啟動 App。重新登入或偵測更新憑證時會保留各帳號的目錄設定。
+
+## macOS 快捷鍵
+
+使用原生選單與目前焦點處理常用系統快捷鍵：
+
+| 快捷鍵 | 功能 |
+| --- | --- |
+| ⌘C / ⌘V / ⌘X / ⌘A | 複製／貼上／剪下／全選 |
+| ⌘Z / ⇧⌘Z | 復原／重做 |
+| ⌥⇧⌘V | 貼上並符合樣式 |
+| ⌘W / ⌘M | 關閉視窗／縮小 |
+| ⌘H / ⌥⌘H | 隱藏程式／隱藏其他程式 |
+| ⌃⌘F | 切換全螢幕 |
+| ⌘Q | 結束程式 |
+| Esc | 關閉設定或取消確認對話框 |
+
+編輯操作依目前焦點及可用狀態啟用；設定正在儲存時不會由 Esc 關閉。

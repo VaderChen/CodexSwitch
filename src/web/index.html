@@ -12,21 +12,76 @@
     <section class="card login-card">
       <div class="section-title"><div><h2>新增帳號</h2><p>按下登入後，會在預設瀏覽器完成 ChatGPT 授權。</p></div><span class="lock">⌁</span></div>
       <label for="email">ChatGPT 帳號 Email</label>
-      <div class="input-row"><input id="email" type="email" autocomplete="email" placeholder="you@example.com" /><button id="loginButton" onclick="login()"><span class="button-label">開啟瀏覽器登入</span><span class="spinner"></span></button></div>
+      <div class="input-row"><input id="email" type="email" autocomplete="email" placeholder="you@example.com" /><button id="loginButton" onclick="login()"><span class="button-label">開啟瀏覽器登入</span><span class="spinner"></span></button><button id="cancelLoginButton" class="cancel-login" onclick="handleCancelLogin()" hidden>取消登入</button></div>
       <p class="hint">本機只監聽 127.0.0.1 的一次性 callback，完成後即關閉。</p>
-      <p id="message" class="message" role="status"></p>
     </section>
     <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleExportAccounts()">匯出</button><button class="detect" onclick="handleImportAccounts()">匯入</button><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
     <footer><span>CodexSwitch · macOS</span><span>Token 僅儲存在本機設定檔</span></footer>
   </main>
+<div id="message" class="message" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="dialog" class="dialog-backdrop" hidden><div class="dialog"><h3 id="dialogTitle"></h3><p id="dialogText"></p><div class="dialog-actions"><button id="dialogCancel" class="dialog-cancel">取消</button><button id="dialogOK" class="dialog-ok">確認套用</button></div></div></div>
+<div id="settingsDialog" class="dialog-backdrop" hidden><form class="dialog settings-dialog" onsubmit="saveSettings(event)"><h3>帳號設定</h3><p id="settingsEmail"></p><label for="settingsHome">CODEX_HOME</label><input id="settingsHome" type="text" autocomplete="off"><label for="settingsData">USER_DATA_DIR</label><input id="settingsData" type="text" autocomplete="off"><p class="settings-hint">留空會填入系統預設值，儲存後於下次套用生效。</p><div class="dialog-actions"><button type="button" class="dialog-cancel" onclick="$('settingsDialog').hidden=true">取消</button><button id="settingsSave" type="submit" class="dialog-ok">儲存</button></div></form></div>
 <script>
 const $ = id => document.getElementById(id);
-function setMessage(text, kind='') { $('message').textContent=text; $('message').className='message '+kind; }
+let messageTimer;
+function setMessage(text, kind='') {
+ clearTimeout(messageTimer);
+ const message=$('message');
+ message.textContent=text;
+ message.className=text?'message '+kind+' visible':'message';
+ if(text) messageTimer=setTimeout(()=>{
+  message.className='message';
+  message.textContent='';
+ },3000);
+}
 function esc(value) { return String(value).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function formatDate(value) { if (!value) return ''; const d=new Date(value); return isNaN(d)?'':`最後更新 ${d.toLocaleString('zh-TW',{dateStyle:'medium',timeStyle:'short'})}`; }
 async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
-function render(accounts) { $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account"><div class="avatar">${esc((a.email||'?')[0].toUpperCase())}</div><div class="account-info"><strong>${esc(a.email)}</strong><span>${esc(a.token_type||'Bearer')} · ${formatDate(a.updated_at)}</span></div><span class="connected">已連結</span><button class="use-account" onclick="handleApplyAccount('${esc(a.id)}')">套用</button><button class="delete" title="移除帳號" onclick="removeAccount('${esc(a.id)}')">×</button></article>`).join(''); }
+let accountRows=[];
+function render(accounts) { accountRows=accounts; $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account"><button class="avatar account-settings" title="帳號設定" aria-label="${esc(a.email)} 的設定" onclick="openSettings('${esc(a.id)}')">⚙</button><div class="account-info"><strong>${esc(a.email)}</strong><span>${esc(a.token_type||'Bearer')} · ${formatDate(a.updated_at)}</span></div>${a.is_current ? '<span class="current-account" role="img" aria-label="當前帳號" title="當前帳號"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12 3 3 6-6"/></svg></span>' : ''}<span class="connected">已連結</span><button class="use-account" ${a.is_current ? 'disabled title="目前正在使用此帳號"' : ''} onclick="handleApplyAccount('${esc(a.id)}')">套用</button><button class="delete" title="移除帳號" onclick="removeAccount('${esc(a.id)}')">×</button></article>`).join(''); }
+let settingsAccountID='';
+let settingsDefaults={};
+async function openSettings(id) {
+ try {
+  const raw=await window.getAccountDefaults();
+  settingsDefaults=typeof raw==='string'?JSON.parse(raw):raw;
+  const account=accountRows.find(a=>a.id===id);
+  if(!account) throw Error('找不到此帳號');
+  settingsAccountID=id;
+  $('settingsEmail').textContent=account.email;
+  $('settingsHome').value=account.codex_home||settingsDefaults.codex_home;
+  $('settingsData').value=account.user_data_dir||settingsDefaults.user_data_dir;
+  $('settingsDialog').hidden=false;
+  $('settingsHome').focus();
+ } catch(e){setMessage(e.message||String(e),'error');}
+}
+async function saveSettings(event) {
+ event.preventDefault();
+ const button=$('settingsSave');
+ if(button.disabled)return;
+ button.disabled=true;
+ try {
+  $('settingsHome').value=$('settingsHome').value.trim()||settingsDefaults.codex_home;
+  $('settingsData').value=$('settingsData').value.trim()||settingsDefaults.user_data_dir;
+  const raw=await window.saveAccountSettings(settingsAccountID,$('settingsHome').value,$('settingsData').value);
+  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  if(result.error)throw Error(result.error);
+  $('settingsDialog').hidden=true;
+  await loadAccounts();
+  setMessage('帳號設定已儲存，下次套用時生效。','success');
+ } catch(e){setMessage(e.message||String(e),'error');}
+ finally{button.disabled=false;}
+}
+async function handleCancelLogin() {
+ const button=$('cancelLoginButton');
+ button.disabled=true;
+ try {
+  if(typeof window.cancelLogin!=='function') throw new Error('取消服務尚未就緒');
+  const raw=await window.cancelLogin();
+  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  if(result.error) throw new Error(result.error);
+ } catch(error) { button.disabled=false; setMessage(error.message||String(error),'error'); }
+}
 async function login() {
  const email=$('email').value.trim();
  if(!email || !$('email').checkValidity()){setMessage('請輸入有效的 Codex 帳號 Email。','error');$('email').focus();return;}
@@ -34,21 +89,28 @@ async function login() {
  if(button.disabled) return;
  try {
   button.disabled=true; button.classList.add('loading');
+  $('cancelLoginButton').hidden=false;
+  $('cancelLoginButton').disabled=false;
   setMessage('正在開啟瀏覽器，請完成 Codex 授權…');
   if(typeof window.startLogin!=='function') throw new Error('登入服務尚未就緒，請稍後重試。');
+  const completion=new Promise(resolve=>{window.resolveLogin=resolve;});
   const raw=await window.startLogin(email);
-  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  let result=typeof raw==='string'?JSON.parse(raw):raw;
   if(!result || typeof result!=='object') throw new Error('登入服務沒有回傳有效結果。');
+  if(result.pending) result=await completion;
+  if(result.cancelled){setMessage('已取消登入。');return;}
   if(result.error) throw new Error(result.error);
   $('email').value='';
   await loadAccounts();
 (function(){ const saved=localStorage.getItem('codexswitch.windowSize'); if(saved){try{const v=JSON.parse(saved);if(v.width&&v.height&&window.setWindowSize)window.setWindowSize(v.width,v.height)}catch(_){}} window.addEventListener('resize',()=>{try{localStorage.setItem('codexswitch.windowSize',JSON.stringify({width:window.innerWidth,height:window.innerHeight}))}catch(_){}}); })();
-document.addEventListener('keydown',e=>{if(e.metaKey&&(e.key==='q'||e.key==='Q'||e.keyCode===81)){e.preventDefault();e.stopImmediatePropagation();if(typeof window.quitApp==='function')window.quitApp();}},true);
+
   setMessage('Codex 登入成功，帳號已儲存。','success');
  } catch(error) {
   setMessage(error.message||String(error),'error');
  } finally {
   button.disabled=false; button.classList.remove('loading');
+  $('cancelLoginButton').hidden=true;
+  window.resolveLogin=null;
  }
 }
 async function handleExportAccounts(){try{const r=JSON.parse(await window.exportAccounts());if(r.error)throw Error(r.error);setMessage('帳號已匯出。','success')}catch(e){setMessage(e.message||String(e),'error')}}
@@ -84,6 +146,7 @@ async function handleApplyAccount(id) {
   const raw=await window.useAccount(id);
   const result=typeof raw==='string'?JSON.parse(raw):raw;
   if(!result || result.error)throw new Error(result&&result.error||'套用服務回傳格式錯誤');
+  await loadAccounts();
   const message='';
   setMessage(message,'success');
   await showDialog('套用完成',message,'關閉',false);
@@ -96,6 +159,17 @@ async function handleApplyAccount(id) {
  }
 }
 async function removeAccount(id) { if(!confirm('確定要移除此帳號？本機儲存的 token 也會刪除。')) return; try { const r=JSON.parse(await window.deleteAccount(id)); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage('帳號已移除。','success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
+// 系統編輯快捷鍵交由原生選單處理；Escape 關閉最上層對話框。
+document.addEventListener('keydown',event=>{
+ if(event.key!=='Escape' || event.isComposing)return;
+ if(!$('settingsDialog').hidden && !$('settingsSave').disabled){
+  event.preventDefault(); $('settingsDialog').hidden=true;
+ }else if(!$('dialog').hidden){
+  event.preventDefault();
+  const button=$('dialogCancel').hidden?$('dialogOK'):$('dialogCancel');
+  if(button.onclick)button.onclick();
+ }
+});
 loadAccounts();
 </script>
 </body></html>

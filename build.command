@@ -5,6 +5,7 @@ SRC_DIR="$SCRIPT_DIR/src"
 APP_DIR="$SCRIPT_DIR/dist/CodexSwitch.app"
 CONTENTS="$APP_DIR/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
+cp "$SRC_DIR/assets/CodexSwitch.icns" "$CONTENTS/Resources/CodexSwitch.icns"
 rm -f "$CONTENTS/MacOS/CodexSwitch" "$CONTENTS/Info.plist"
 printf '%s\n' "正在編譯 CodexSwitch…"
 (cd "$SRC_DIR" && CGO_ENABLED=1 go build -trimpath -o "$CONTENTS/MacOS/CodexSwitch" .)
@@ -17,6 +18,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>com.vader.codexswitch</string>
 <key>CFBundleVersion</key><string>1.0.0</string>
 <key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleIconFile</key><string>CodexSwitch.icns</string>
 <key>CFBundleExecutable</key><string>CodexSwitch</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 </dict></plist>

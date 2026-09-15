@@ -23,6 +23,8 @@ import (
 )
 
 type Account struct {
+	CodexHome    string          `json:"codex_home,omitempty"`
+	UserDataDir  string          `json:"user_data_dir,omitempty"`
 	Auth         json.RawMessage `json:"codex_auth,omitempty"`
 	ID           string          `json:"id"`
 	Email        string          `json:"email"`
@@ -35,15 +37,18 @@ type Account struct {
 }
 
 type PublicAccount struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	TokenType string    `json:"token_type,omitempty"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CodexHome   string    `json:"codex_home"`
+	UserDataDir string    `json:"user_data_dir"`
+	IsCurrent   bool      `json:"is_current"`
+	ID          string    `json:"id"`
+	Email       string    `json:"email"`
+	TokenType   string    `json:"token_type,omitempty"`
+	ExpiresAt   time.Time `json:"expires_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (a Account) Public() PublicAccount {
-	return PublicAccount{ID: a.ID, Email: a.Email, TokenType: a.TokenType, ExpiresAt: a.ExpiresAt, UpdatedAt: a.UpdatedAt}
+	return PublicAccount{CodexHome: a.CodexHome, UserDataDir: a.UserDataDir, ID: a.ID, Email: a.Email, TokenType: a.TokenType, ExpiresAt: a.ExpiresAt, UpdatedAt: a.UpdatedAt}
 }
 
 type accountStore struct {
@@ -91,6 +96,7 @@ func (s *accountStore) upsert(a Account) error {
 			old := s.accounts[i]
 			a.ID = old.ID
 			a.CreatedAt = old.CreatedAt
+			a.CodexHome, a.UserDataDir = old.CodexHome, old.UserDataDir
 			if a.RefreshToken == "" {
 				a.RefreshToken = old.RefreshToken
 			}
@@ -169,7 +175,10 @@ func randomString(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func (m *loginManager) start(email string) (Account, error) {
+func (m *loginManager) start(ctx context.Context, email string) (Account, error) {
+	if err := ctx.Err(); err != nil {
+		return Account{}, err
+	}
 	email = strings.TrimSpace(email)
 	if !regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`).MatchString(email) {
 		return Account{}, errors.New("請輸入有效的 ChatGPT 帳號 Email")
@@ -216,6 +225,9 @@ func (m *loginManager) start(email string) (Account, error) {
 	q.Set("id_token_add_organizations", "true")
 	q.Set("codex_cli_simplified_flow", "true")
 	q.Set("originator", "pi")
+	if err := ctx.Err(); err != nil {
+		return Account{}, err
+	}
 	if err := openBrowser(authURL + "?" + q.Encode()); err != nil {
 		return Account{}, err
 	}
@@ -224,7 +236,9 @@ func (m *loginManager) start(email string) (Account, error) {
 		if r.err != nil {
 			return Account{}, r.err
 		}
-		return m.complete(p, redirect, r.query)
+		return m.complete(ctx, p, redirect, r.query)
+	case <-ctx.Done():
+		return Account{}, ctx.Err()
 	case <-time.After(5 * time.Minute):
 		return Account{}, errors.New("登入逾時，請重新開始")
 	}
@@ -266,7 +280,7 @@ func (m *loginManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<html><body style="font-family:-apple-system;padding:40px"><h2>CodexSwitch 登入完成</h2><p>可以關閉此分頁並返回應用程式。</p></body></html>`)
 }
 
-func (m *loginManager) complete(p *pendingLogin, redirect string, q url.Values) (Account, error) {
+func (m *loginManager) complete(ctx context.Context, p *pendingLogin, redirect string, q url.Values) (Account, error) {
 	t := tokenResponse{}
 	if t.AccessToken == "" {
 		code := q.Get("code")
@@ -283,7 +297,12 @@ func (m *loginManager) complete(p *pendingLogin, redirect string, q url.Values) 
 		}
 		form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {redirect}, "client_id": {clientID}, "code_verifier": {p.verifier}}
 		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.PostForm(tokenURL, form)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+		if err != nil {
+			return Account{}, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := client.Do(req)
 		if err != nil {
 			return Account{}, fmt.Errorf("交換 token 失敗: %w", err)
 		}
@@ -327,6 +346,9 @@ func (m *loginManager) complete(p *pendingLogin, redirect string, q url.Values) 
 	if t.ExpiresIn > 0 {
 		a.ExpiresAt = now.Add(time.Duration(t.ExpiresIn) * time.Second)
 	}
+	if err := ctx.Err(); err != nil {
+		return Account{}, err
+	}
 	if err := m.store.upsert(a); err != nil {
 		return Account{}, err
 	}
@@ -337,7 +359,7 @@ func (m *loginManager) finish() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.server != nil {
-		_ = m.server.Shutdown(context.Background())
+		_ = m.server.Close()
 	}
 	m.server, m.listener, m.pending = nil, nil, nil
 }
