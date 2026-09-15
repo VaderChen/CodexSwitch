@@ -23,7 +23,7 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$SRC_DIR/assets/CodexSwitch.icns" "$CONTENTS/Resources/CodexSwitch.icns"
 rm -f "$CONTENTS/MacOS/CodexSwitch" "$CONTENTS/Info.plist"
 printf '%s\n' "正在編譯 CodexSwitch…"
-(cd "$SRC_DIR" && CGO_ENABLED=1 go build -trimpath -ldflags "-X main.appVersion=$VERSION_NUMBER -X main.appBuild=$BUILD_TIME" -o "$CONTENTS/MacOS/CodexSwitch" .)
+(cd "$SRC_DIR" && CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags "-X main.appVersion=$VERSION_NUMBER -X main.appBuild=$BUILD_TIME" -o "$CONTENTS/MacOS/CodexSwitch" .)
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
