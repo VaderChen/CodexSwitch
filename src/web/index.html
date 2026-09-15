@@ -16,11 +16,13 @@
       <p class="hint">本機只監聽 127.0.0.1 的一次性 callback，完成後即關閉。</p>
     </section>
     <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleExportAccounts()">匯出</button><button class="detect" onclick="handleImportAccounts()">匯入</button><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
-    <footer><span>CodexSwitch · macOS</span><span>Token 僅儲存在本機設定檔</span></footer>
+    <footer><span>CodexSwitch · macOS</span><span id="appVersion"><!-- APP_VERSION --></span></footer>
   </main>
 <div id="message" class="message" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="dialog" class="dialog-backdrop" hidden><div class="dialog"><h3 id="dialogTitle"></h3><p id="dialogText"></p><div class="dialog-actions"><button id="dialogCancel" class="dialog-cancel">取消</button><button id="dialogOK" class="dialog-ok">確認套用</button></div></div></div>
 <div id="settingsDialog" class="dialog-backdrop" hidden><form class="dialog settings-dialog" onsubmit="saveSettings(event)"><h3>帳號設定</h3><p id="settingsEmail"></p><label for="settingsHome">CODEX_HOME</label><input id="settingsHome" type="text" autocomplete="off"><label for="settingsData">USER_DATA_DIR</label><input id="settingsData" type="text" autocomplete="off"><p class="settings-hint">留空會填入系統預設值，儲存後於下次套用生效。</p><div class="dialog-actions"><button type="button" class="dialog-cancel" onclick="$('settingsDialog').hidden=true">取消</button><button id="settingsSave" type="submit" class="dialog-ok">儲存</button></div></form></div>
+<div id="resetDialog" class="dialog-backdrop" hidden><div class="dialog"><h3>用量重置</h3><p id="resetEmail"></p><p id="resetCount"></p><p class="reset-hint">長按 2 秒使用 1 次重置，無法復原。</p><div id="resetCredits"></div><div class="dialog-actions"><button id="resetClose" class="dialog-cancel" onclick="closeReset()">關閉</button></div></div></div>
+<div id="accountTooltip" class="account-tooltip" role="tooltip" hidden></div>
 <script>
 const $ = id => document.getElementById(id);
 let messageTimer;
@@ -35,10 +37,213 @@ function setMessage(text, kind='') {
  },3000);
 }
 function esc(value) { return String(value).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function formatDate(value) { if (!value) return ''; const d=new Date(value); return isNaN(d)?'':`最後更新 ${d.toLocaleString('zh-TW',{dateStyle:'medium',timeStyle:'short'})}`; }
+function formatDate(value) {
+ if(!value)return '';
+ const d=new Date(value);if(isNaN(d))return '';
+ const pad=n=>String(n).padStart(2,'0');
+ return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+let resetSequence=0;
+const resetWaiters=new Map();
+window.receiveResetResult=(id,result)=>{const pending=resetWaiters.get(id);if(pending){resetWaiters.delete(id);clearTimeout(pending.timer);pending.resolve(result);}};
+async function resetRequest(action,id,credit='',key=''){
+ const requestID=String(++resetSequence);
+ const completion=new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>{resetWaiters.delete(requestID);reject(Error('請求逾時，重試會沿用同一請求'));},35000);
+  resetWaiters.set(requestID,{resolve,reject,timer});
+ });
+ try{
+  const raw=await window.resetAccountAction(action,id,credit,key,requestID);
+  const initial=typeof raw==='string'?JSON.parse(raw):raw;
+  if(!initial.pending)window.receiveResetResult(requestID,initial);
+ }catch(e){window.receiveResetResult(requestID,{error:e.message||String(e)});}
+ const result=await completion;
+ if(result.error)throw Error(result.error);
+ return result;
+}
+let resetAccountID='';
+let resetItems=[];
+let resetConsuming=false;
+let resetView=0;
+function closeReset(){if(resetConsuming)return;cancelResetHold();resetView++;$('resetDialog').hidden=true;}
+async function openReset(id){
+ if(resetConsuming)return;
+ hideAccountTooltip();
+ cancelResetHold();
+ const view=++resetView;
+ resetAccountID=id;
+ $('resetEmail').textContent=accountRows.find(a=>a.id===id)?.email||'';
+ $('resetDialog').hidden=false;
+ $('resetCount').textContent='讀取中…';$('resetCredits').innerHTML='';
+ try{
+  const data=await resetRequest('list',id);
+  if(view!==resetView)return;
+  resetItems=data.credits||[];
+  $('resetCount').textContent=`可用次數：${data.available_count??'-'}`;
+  $('resetCredits').innerHTML=resetItems.length?resetItems.map((item,i)=>`<div class="reset-credit"><span>到期 ${esc(formatDate(item.expires_at))}</span><button class="use-account hold-reset" onpointerdown="beginResetHold(event,${i})" onpointerup="cancelResetHold(true)" onpointerleave="cancelResetHold()" onpointercancel="cancelResetHold()" onkeydown="resetHoldKey(event,${i})" onkeyup="resetHoldKeyUp(event)" onblur="cancelResetHold()" onclick="event.preventDefault()"><span>長按重置</span></button></div>`).join(''):'<p>目前沒有可用的重置明細。</p>';
+ }catch(e){if(view===resetView)$('resetCount').textContent=e.message;}
+}
+let resetHoldTimer=null;
+let resetHoldButton=null;
+function cancelResetHold(released=false){
+ const held=resetHoldTimer!==null;
+ if(held)clearTimeout(resetHoldTimer);
+ resetHoldTimer=null;
+ resetHoldButton?.classList.remove('is-holding');resetHoldButton=null;
+ if(held && released)setMessage('請持續按住 2 秒才會重置。');
+}
+function beginResetHold(event,index){
+ if(event.type==='pointerdown' && event.button!==0)return;
+ event.preventDefault();
+ if(resetConsuming || resetHoldTimer!==null || event.currentTarget.disabled)return;
+ resetHoldButton=event.currentTarget;
+ resetHoldButton.classList.add('is-holding');
+ resetHoldTimer=setTimeout(()=>{cancelResetHold();consumeReset(index);},2000);
+}
+function resetHoldKey(event,index){if((event.key===' '||event.key==='Enter')&&!event.repeat)beginResetHold(event,index);else if(event.key===' '||event.key==='Enter')event.preventDefault();}
+function resetHoldKeyUp(event){if(event.key===' '||event.key==='Enter'){event.preventDefault();cancelResetHold(true);}}
+if(typeof window.addEventListener==='function')window.addEventListener('blur',()=>cancelResetHold());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelResetHold();});
+async function consumeReset(index){
+ if(resetConsuming)return;
+ const item=resetItems[index];if(!item)return;
+ const id=resetAccountID;
+
+ resetConsuming=true;$('resetClose').disabled=true;
+ document.querySelectorAll('#resetCredits button').forEach(b=>b.disabled=true);
+ const storageKey=`codexswitch.reset.${id}.${item.id}`;
+ try{
+  let key=localStorage.getItem(storageKey);
+  if(!key){key=crypto.randomUUID();localStorage.setItem(storageKey,key);}
+  const result=await resetRequest('consume',id,item.id,key);
+  const messages={reset:'重置完成',already_redeemed:'此重置請求先前已完成',no_credit:'沒有可用重置次數',nothing_to_reset:'目前無需重置'};
+  if(!messages[result.code])throw Error('重置結果未知');
+  localStorage.removeItem(storageKey);
+  setMessage(messages[result.code],'success');
+  await refreshUsage();
+ }catch(e){setMessage(e.message||String(e),'error');}
+ finally{resetConsuming=false;$('resetClose').disabled=false;await openReset(id);}
+}
+let usageCache={};
+function usageWindow(value,seconds){return value?.windows?.find(w=>w.seconds===seconds);}
+function remainingText(window){return window && Number.isFinite(window.remaining)?`${Math.floor(window.remaining)}%`:'-';}
+function usageText(value){
+ return `${remainingText(usageWindow(value,18000))} / ${remainingText(usageWindow(value,604800))}`;
+}
+function accountDetails(account,value){
+ const windowLine=(label,seconds)=>{
+  const w=usageWindow(value,seconds);
+  return `<span>${esc(label)}</span><span class="tooltip-percent">${esc(remainingText(w))}</span><span>自動重置</span><span>${esc(w?.reset_at?formatDate(w.reset_at*1000):'-')}</span>`;
+ };
+ const updated=value?.updated_at && new Date(value.updated_at).getFullYear()>=2000?formatDate(value.updated_at):'-';
+ const status=value?.error?(value.windows?.length?' · 舊值':' · 暫不可用'):value?.loading?' · 更新中':'';
+ return `<div class="tooltip-grid">${windowLine('5 小時',18000)}${windowLine('7 天',604800)}</div><div class="tooltip-updated">更新 ${esc(updated+status)}</div>`;
+}
+let hoveredAccount=null;
+function hideAccountTooltip(){
+ hoveredAccount?.removeAttribute('aria-describedby');
+ hoveredAccount=null;
+ const tip=$('accountTooltip');if(tip)tip.hidden=true;
+}
+function showAccountTooltip(event){
+ if(draggedAccountID)return;
+ hoveredAccount=event.currentTarget;
+ updateAccountTooltip();
+}
+function updateAccountTooltip(){
+ if(!hoveredAccount)return;
+ if(!hoveredAccount.isConnected){hideAccountTooltip();return;}
+ const account=accountRows.find(a=>a.id===hoveredAccount.dataset.accountId);
+ if(!account){hideAccountTooltip();return;}
+ const tip=$('accountTooltip');
+ tip.innerHTML=accountDetails(account,usageCache[account.id]);
+ tip.hidden=false;
+ hoveredAccount.setAttribute('aria-describedby','accountTooltip');
+ const rect=hoveredAccount.getBoundingClientRect();
+ const box=tip.getBoundingClientRect();
+ const left=Math.max(12,Math.min(rect.left,window.innerWidth-box.width-12));
+ const top=rect.bottom+box.height+10<=window.innerHeight?rect.bottom+8:Math.max(12,rect.top-box.height-8);
+ tip.style.left=`${left}px`;tip.style.top=`${top}px`;
+}
+let usagePollBusy=false;
+async function refreshUsage(){
+ if(usagePollBusy || typeof window.getAccountUsage!=='function')return;
+ usagePollBusy=true;
+ try{
+  const raw=await window.getAccountUsage();
+  usageCache=typeof raw==='string'?JSON.parse(raw):raw;
+  document.querySelectorAll('[data-usage-id]').forEach(el=>{
+   const value=usageCache[el.dataset.usageId];
+   el.textContent=usageText(value);
+   el.classList.toggle('usage-stale',Boolean(value?.error && value?.windows?.length));
+  });
+  updateAccountTooltip();
+ }catch(_){/* 背景查詢失敗不打斷目前操作。 */}
+ finally{usagePollBusy=false;}
+}
+
 async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
 let accountRows=[];
-function render(accounts) { accountRows=accounts; $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account"><button class="avatar account-settings" title="帳號設定" aria-label="${esc(a.email)} 的設定" onclick="openSettings('${esc(a.id)}')">⚙</button><div class="account-info"><strong>${esc(a.email)}</strong><span>${esc(a.token_type||'Bearer')} · ${formatDate(a.updated_at)}</span></div>${a.is_current ? '<span class="current-account" role="img" aria-label="當前帳號" title="當前帳號"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12 3 3 6-6"/></svg></span>' : ''}<span class="connected">已連結</span><button class="use-account" ${a.is_current ? 'disabled title="目前正在使用此帳號"' : ''} onclick="handleApplyAccount('${esc(a.id)}')">套用</button><button class="delete" title="移除帳號" onclick="removeAccount('${esc(a.id)}')">×</button></article>`).join(''); }
+let draggedAccountID=null;
+let reorderBusy=false;
+function clearDropIndicators(){
+ document.querySelectorAll('.account.drop-before,.account.drop-after').forEach(row=>row.classList.remove('drop-before','drop-after'));
+}
+function startAccountDrag(event){
+ if(reorderBusy){event.preventDefault();return;}
+ hideAccountTooltip();
+ const row=event.currentTarget.closest('.account');
+ draggedAccountID=row.dataset.accountId;
+ event.dataTransfer.effectAllowed='move';
+ event.dataTransfer.setData('text/plain',draggedAccountID);
+ row.classList.add('dragging');
+}
+function accountDragOver(event){
+ if(!draggedAccountID || reorderBusy)return;
+ event.preventDefault();
+ event.dataTransfer.dropEffect='move';
+ clearDropIndicators();
+ const row=event.currentTarget;
+ if(row.dataset.accountId===draggedAccountID)return;
+ const rect=row.getBoundingClientRect();
+ row.classList.add(event.clientY<rect.top+rect.height/2?'drop-before':'drop-after');
+}
+function accountDragLeave(event){
+ if(!event.currentTarget.contains(event.relatedTarget))event.currentTarget.classList.remove('drop-before','drop-after');
+}
+function endAccountDrag(){
+ draggedAccountID=null;
+ clearDropIndicators();
+ document.querySelectorAll('.account.dragging').forEach(row=>row.classList.remove('dragging'));
+}
+async function dropAccount(event){
+ event.preventDefault();
+ if(!draggedAccountID || reorderBusy)return;
+ const sourceID=draggedAccountID;
+ const row=event.currentTarget;
+ const targetID=row.dataset.accountId;
+ const rect=row.getBoundingClientRect();
+ const after=event.clientY>=rect.top+rect.height/2;
+ endAccountDrag();
+ if(sourceID===targetID)return;
+ const source=accountRows.find(a=>a.id===sourceID);
+ const next=accountRows.filter(a=>a.id!==sourceID);
+ const targetIndex=next.findIndex(a=>a.id===targetID);
+ if(!source || targetIndex<0)return;
+ next.splice(targetIndex+(after?1:0),0,source);
+ if(next.every((a,i)=>a.id===accountRows[i].id))return;
+ reorderBusy=true;
+ try{
+  if(typeof window.reorderAccounts!=='function')throw Error('排序服務尚未就緒，請重新啟動 App');
+  const raw=await window.reorderAccounts(next.map(a=>a.id));
+  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  if(!result || result.error)throw Error(result&&result.error||'排序服務回傳格式錯誤');
+  await loadAccounts();
+  setMessage('帳號順序已儲存。','success');
+ }catch(e){await loadAccounts();setMessage(e.message||String(e),'error');}
+ finally{reorderBusy=false;}
+}
+function render(accounts) { hideAccountTooltip(); accountRows=accounts; $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account" tabindex="0" onmouseenter="showAccountTooltip(event)" onmouseleave="hideAccountTooltip()" onfocusin="showAccountTooltip(event)" onfocusout="hideAccountTooltip()" data-account-id="${esc(a.id)}" ondragover="accountDragOver(event)" ondragleave="accountDragLeave(event)" ondrop="dropAccount(event)"><button class="avatar account-settings" title="帳號設定" aria-label="${esc(a.email)} 的設定" onclick="openSettings('${esc(a.id)}')">⚙</button><div class="account-info" draggable="true" ondragstart="startAccountDrag(event)" ondragend="endAccountDrag()"><strong>${esc(a.email)}</strong><span>${formatDate(a.updated_at)} · <em class="account-usage" data-usage-id="${esc(a.id)}">${esc(usageText(usageCache[a.id]))}</em></span></div>${a.is_current ? '<span class="current-account" role="img" aria-label="當前帳號" title="當前帳號"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12 3 3 6-6"/></svg></span>' : ''}<span class="connected">已連結</span><button class="use-account reset-account" onclick="openReset('${esc(a.id)}')">重置</button><button class="use-account" ${a.is_current ? 'disabled title="目前正在使用此帳號"' : ''} onclick="handleApplyAccount('${esc(a.id)}')">套用</button><button class="delete" title="移除帳號" onclick="removeAccount('${esc(a.id)}')">×</button></article>`).join(''); refreshUsage(); }
 let settingsAccountID='';
 let settingsDefaults={};
 async function openSettings(id) {
@@ -162,6 +367,8 @@ async function removeAccount(id) { if(!confirm('確定要移除此帳號？本�
 // 系統編輯快捷鍵交由原生選單處理；Escape 關閉最上層對話框。
 document.addEventListener('keydown',event=>{
  if(event.key!=='Escape' || event.isComposing)return;
+ hideAccountTooltip();
+ if(!$('resetDialog').hidden){event.preventDefault();closeReset();return;}
  if(!$('settingsDialog').hidden && !$('settingsSave').disabled){
   event.preventDefault(); $('settingsDialog').hidden=true;
  }else if(!$('dialog').hidden){
@@ -171,5 +378,6 @@ document.addEventListener('keydown',event=>{
  }
 });
 loadAccounts();
+setInterval(refreshUsage,2000);
 </script>
 </body></html>

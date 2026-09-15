@@ -19,12 +19,18 @@ var indexHTML string
 //go:embed web/style.css
 var styleCSS string
 
+// 由 build.command 注入，避免版本隨啟動時間變動。
+var appVersion = "1.00.0000"
+var appBuild = "0000"
+
 func main() {
 	store, err := newAccountStore()
 	if err != nil {
 		log.Fatal(err)
 	}
 	manager := newLoginManager(store)
+	usage := newUsageService()
+	defer usage.cancel()
 	w := webview.New(true)
 	defer w.Destroy()
 	w.SetTitle("CodexSwitch")
@@ -46,6 +52,44 @@ func main() {
 		}
 		return map[string]any{"ok": true}
 	})
+	w.Bind("reorderAccounts", func(ids []string) map[string]any {
+		if err := store.reorder(ids); err != nil {
+			return map[string]any{"error": err.Error()}
+		}
+		return map[string]any{"ok": true}
+	})
+	// 原生 binding 立即返回，由背景工作回傳結果，避免阻塞介面。
+	resetBusy := false
+	w.Bind("resetAccountAction", func(action, id, credit, key, requestID string) map[string]any {
+		if resetBusy {
+			return map[string]any{"error": "重置操作進行中，請稍候"}
+		}
+		var account Account
+		for _, a := range store.list() {
+			if a.ID == id {
+				account = a
+				break
+			}
+		}
+		if account.ID == "" {
+			return map[string]any{"error": "找不到此帳號"}
+		}
+		resetBusy = true
+		go func() {
+			result, err := usage.resetAction(account, action, credit, key, resetEndpoint)
+			if err != nil {
+				result = map[string]any{"error": err.Error()}
+			}
+			data, _ := json.Marshal(result)
+			rid, _ := json.Marshal(requestID)
+			w.Dispatch(func() {
+				resetBusy = false
+				w.Eval("window.receiveResetResult(" + string(rid) + "," + string(data) + ")")
+			})
+		}()
+		return map[string]any{"pending": true}
+	})
+	w.Bind("getAccountUsage", func() map[string]accountUsage { return usage.snapshot(store.list()) })
 	w.Bind("getAccounts", func() string {
 		b, _ := json.Marshal(manager.publicAccounts())
 		return string(b)
@@ -126,5 +170,6 @@ func main() {
 }
 
 func indexHTMLWithCSS() string {
-	return strings.Replace(indexHTML, "/* STYLE_PLACEHOLDER */", styleCSS, 1)
+	page := strings.Replace(indexHTML, "/* STYLE_PLACEHOLDER */", styleCSS, 1)
+	return strings.Replace(page, "<!-- APP_VERSION -->", appVersion+" build "+appBuild, 1)
 }

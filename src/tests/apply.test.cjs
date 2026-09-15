@@ -6,7 +6,7 @@ const html=fs.readFileSync(require('node:path').join(__dirname,'../web/index.htm
 function setup(backend){
  const elements={};
  for(const id of ['message','count','empty','accountList','dialog','dialogTitle','dialogText','dialogOK','dialogCancel'])elements[id]={hidden:true,style:{}};
- const global={document:{addEventListener(){},getElementById:id=>elements[id]},useAccount:backend,getAccounts:async()=> '[]',setTimeout,clearTimeout};
+ const global={document:{addEventListener(){},getElementById:id=>elements[id]},useAccount:backend,getAccounts:async()=> '[]',setTimeout,clearTimeout,setInterval:()=>0};
  // In WebView, window IS the global object. A separate window mock misses collisions.
  global.window=global;
  const context=vm.createContext(global);

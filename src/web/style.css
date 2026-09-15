@@ -28,3 +28,18 @@ footer{margin-top:auto;padding-bottom:24px}
 .cancel-login[hidden]{display:none}
 
 .account-settings{flex-shrink:0;font-size:21px}.account-settings:hover{background:#e4dcff}.account-settings:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.settings-dialog{width:min(520px,calc(100% - 36px))}.settings-dialog label{display:block;color:var(--text);margin:16px 0 7px}.settings-dialog input{display:block;width:100%;font-size:13px}.settings-dialog .settings-hint{margin-top:14px;font-size:12px}
+
+/* 拖曳帳號資訊以調整排列；操作按鈕維持原有功能。 */
+.account-info[draggable=true]{cursor:grab}.account-info[draggable=true]:active{cursor:grabbing}
+.account.dragging{opacity:.45}.account.drop-before{box-shadow:inset 0 3px 0 var(--accent)}.account.drop-after{box-shadow:inset 0 -3px 0 var(--accent)}
+
+.account-usage{font-style:normal}.account-info>span{font-variant-numeric:tabular-nums;line-height:1.5}
+
+.account-tooltip{position:fixed;z-index:40;max-width:min(340px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;padding:9px 12px;border:1px solid #d9d0f7;border-radius:9px;background:#fff;color:var(--text);box-shadow:0 8px 30px #30374726;font-size:11px;line-height:1.5;white-space:normal;overflow-wrap:anywhere;pointer-events:none}
+.account-tooltip[hidden]{display:none}.account-usage.usage-stale{color:#956d31}.account:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.reset-credit{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}#resetCredits{max-height:220px;overflow:auto}#resetCount{margin-top:10px}.reset-account{padding:7px 9px}
+
+.reset-hint{font-size:11px!important;margin-top:6px!important}.hold-reset{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}.hold-reset span{position:relative;z-index:1}.hold-reset::before{content:"";position:absolute;inset:0;background:#c9baf2;transform:scaleX(0);transform-origin:left}.hold-reset.is-holding::before{transform:scaleX(1);transition:transform 2s linear}
+
+.tooltip-grid{display:grid;grid-template-columns:3.4em 3.6em auto auto;column-gap:8px;row-gap:3px;align-items:center;font-variant-numeric:tabular-nums}.tooltip-grid>span{white-space:nowrap}.tooltip-percent{text-align:right}.tooltip-updated{margin-top:5px;color:var(--muted);font-variant-numeric:tabular-nums}

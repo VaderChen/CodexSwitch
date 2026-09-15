@@ -429,3 +429,32 @@ func (s *accountStore) importFile() error {
 	}
 	return nil
 }
+
+// 以完整 ID 清單調整順序，拒絕過期或重複的列表。
+func (s *accountStore) reorder(ids []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(ids) != len(s.accounts) {
+		return errors.New("帳號列表已變更，請重新整理後再排序")
+	}
+	byID := make(map[string]Account, len(s.accounts))
+	for _, a := range s.accounts {
+		byID[a.ID] = a
+	}
+	next := make([]Account, 0, len(ids))
+	for _, id := range ids {
+		a, ok := byID[id]
+		if !ok {
+			return errors.New("排序包含重複或不存在的帳號，請重新整理")
+		}
+		next = append(next, a)
+		delete(byID, id)
+	}
+	previous := s.accounts
+	s.accounts = next
+	if err := s.saveLocked(); err != nil {
+		s.accounts = previous
+		return err
+	}
+	return nil
+}
