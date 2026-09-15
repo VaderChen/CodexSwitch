@@ -68,3 +68,12 @@ void codexswitch_configure_window(void *ptr) {
  [NSApp setWindowsMenu:window];
  [NSApp setMainMenu:main];
 }
+
+int codexswitch_codex_running(void) {
+ @autoreleasepool {
+  for (NSRunningApplication *app in [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.openai.codex"]) {
+   if (!app.terminated) return 1;
+  }
+  return 0;
+ }
+}

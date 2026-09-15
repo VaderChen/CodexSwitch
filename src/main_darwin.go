@@ -43,6 +43,7 @@ func main() {
 	w.SetSize(760, 500, webview.HintNone)
 	configureNativeWindow(w.Window())
 	w.Bind("saveButtonHints", saveButtonHintsPreference)
+	w.Bind("acknowledgeUpdateReady", acknowledgeUpdateReady)
 	w.Bind("setWindowSize", func(width, height int) {
 		if width >= 480 && height >= 360 && width <= 2400 && height <= 1600 {
 			w.SetSize(width, height, webview.HintNone)

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -89,12 +90,18 @@ if ! /bin/mv "$work/CodexSwitch.app" "$target"; then
  /usr/bin/open -n "$target"
  exit 1
 fi
-if ! /usr/bin/open -n "$target"; then
+if ! /usr/bin/open -n "$target" --args --update-ready "$work/ready"; then
  /bin/mv "$target" "$work/failed.app"
  /bin/mv "$backup" "$target"
  /usr/bin/open -n "$target"
  exit 1
 fi
+i=0
+while [ ! -f "$work/ready" ]; do
+ i=$((i+1))
+ if [ "$i" -gt 30 ]; then echo '新版未回報就緒，保留舊版備份與安裝紀錄。'; exit 1; fi
+ sleep 1
+done
 /bin/rm -rf "$backup"
 /bin/rm -rf "$work"
 `
@@ -195,4 +202,40 @@ func stageAndLaunchUpdate(ctx context.Context, dmg, target, version string) erro
 	handedOff = true
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+// 只有已載入帳號列表並保持運作的更新程序可回報就緒。
+var updateReadyOnce sync.Once
+
+func acknowledgeUpdateReady() {
+	args := os.Args
+	if len(args) != 3 || args[1] != "--update-ready" {
+		return
+	}
+	marker := args[2]
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return
+	}
+	target := filepath.Dir(filepath.Dir(filepath.Dir(exe)))
+	work := filepath.Dir(marker)
+	if filepath.Base(marker) != "ready" || !strings.HasPrefix(filepath.Base(work), ".codexswitch-update-") || filepath.Dir(work) != filepath.Dir(target) {
+		return
+	}
+	if info, err := os.Lstat(target + ".update.bak"); err != nil || !info.IsDir() {
+		return
+	}
+	updateReadyOnce.Do(func() {
+		go func() {
+			time.Sleep(5 * time.Second)
+			f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if err == nil {
+				_ = f.Close()
+			}
+		}()
+	})
 }

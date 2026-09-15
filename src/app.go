@@ -88,9 +88,16 @@ func (s *accountStore) list() []Account {
 	return result
 }
 
-func (s *accountStore) upsert(a Account) error {
+func (s *accountStore) upsert(a Account) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := append([]Account(nil), s.accounts...)
+	defer func() {
+		if err != nil {
+			s.accounts = previous
+		}
+	}()
+
 	for i := range s.accounts {
 		if strings.EqualFold(s.accounts[i].Email, a.Email) {
 			old := s.accounts[i]
@@ -111,9 +118,16 @@ func (s *accountStore) upsert(a Account) error {
 	return s.saveLocked()
 }
 
-func (s *accountStore) remove(id string) error {
+func (s *accountStore) remove(id string) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := append([]Account(nil), s.accounts...)
+	defer func() {
+		if err != nil {
+			s.accounts = previous
+		}
+	}()
+
 	for i := range s.accounts {
 		if s.accounts[i].ID == id {
 			s.accounts = append(s.accounts[:i], s.accounts[i+1:]...)
@@ -403,7 +417,7 @@ func (s *accountStore) exportFile() error {
 		return err
 	}
 	path := strings.TrimSpace(string(out))
-	return os.WriteFile(path, data, 0600)
+	return writePrivateFile(path, data)
 }
 
 func (s *accountStore) importFile() error {
@@ -489,4 +503,24 @@ func (s *accountStore) reorder(ids []string) error {
 		return err
 	}
 	return nil
+}
+
+// 同目錄暫存後原子替換；既有檔案權限不會沿用。
+func writePrivateFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".codexswitch-export-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

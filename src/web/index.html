@@ -253,7 +253,7 @@ async function refreshUsage(){
  finally{usagePollBusy=false;}
 }
 
-async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
+async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); if(typeof window.acknowledgeUpdateReady==='function')window.acknowledgeUpdateReady(); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
 $('accountList').addEventListener('click',event=>{
  const button=event.target.closest('button[data-action]');
  if(!button || button.disabled)return;

@@ -6,6 +6,7 @@ package main
 #cgo darwin LDFLAGS: -framework Cocoa
 void codexswitch_configure_window(void *ptr);
 int codexswitch_button_hints(void);
+int codexswitch_codex_running(void);
 void codexswitch_save_button_hints(int enabled);
 */
 import "C"
@@ -21,3 +22,5 @@ func saveButtonHintsPreference(enabled bool) {
 	}
 	C.codexswitch_save_button_hints(value)
 }
+
+func nativeCodexRunning() bool { return C.codexswitch_codex_running() != 0 }

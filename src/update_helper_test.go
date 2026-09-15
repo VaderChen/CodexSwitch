@@ -21,7 +21,7 @@ func TestUpdateHelperReplacesAndRollsBack(t *testing.T) {
 			os.MkdirAll(filepath.Join(work, "CodexSwitch.app"), 0700)
 			os.WriteFile(filepath.Join(work, "CodexSwitch.app", "version"), []byte("new"), 0600)
 			opener := filepath.Join(dir, "open-stub")
-			body := "#!/bin/sh\nexit 0\n"
+			body := "#!/bin/sh\ntouch \"$5\"\nexit 0\n"
 			if fail {
 				body = "#!/bin/sh\n[ \"$(cat \"$2/version\")\" = old ]\n"
 			}
@@ -44,5 +44,26 @@ func TestUpdateHelperReplacesAndRollsBack(t *testing.T) {
 				t.Fatalf("expected %s", want)
 			}
 		})
+	}
+}
+
+func TestUpdateHelperKeepsBackupWithoutReady(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "Example.app")
+	work := filepath.Join(dir, "work")
+	os.MkdirAll(target, 0700)
+	os.WriteFile(filepath.Join(target, "old"), []byte("original"), 0600)
+	os.MkdirAll(filepath.Join(work, "CodexSwitch.app"), 0700)
+	opener := filepath.Join(dir, "open")
+	os.WriteFile(opener, []byte("#!/bin/sh\nexit 0\n"), 0700)
+	script := strings.ReplaceAll(updateHelper, "/usr/bin/open", shellQuote(opener))
+	script = strings.ReplaceAll(script, "sleep 1", "sleep 0.01")
+	path := filepath.Join(dir, "helper")
+	os.WriteFile(path, []byte(script), 0700)
+	if err := exec.Command("/bin/sh", path, "99999999", target, work).Run(); err == nil {
+		t.Fatal("must report missing ready acknowledgment")
+	}
+	if b, err := os.ReadFile(filepath.Join(target+".update.bak", "old")); err != nil || string(b) != "original" {
+		t.Fatal("must preserve working original backup")
 	}
 }

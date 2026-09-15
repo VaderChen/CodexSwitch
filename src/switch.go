@@ -262,15 +262,7 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	return switchResult{Email: validated.Email, EnvPath: envPath}, nil
 }
 
-func codexRunning() bool {
-	for _, name := range []string{"ChatGPT", "Codex"} {
-		cmd := exec.Command("pgrep", "-x", name)
-		if err := cmd.Run(); err == nil {
-			return true
-		}
-	}
-	return false
-}
+func codexRunning() bool { return nativeCodexRunning() }
 
 type fileUpdate struct {
 	path string
