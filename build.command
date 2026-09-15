@@ -40,4 +40,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 chmod +x "$CONTENTS/MacOS/CodexSwitch"
+# Remove AppleDouble metadata files created on external macOS volumes; they break codesign/DMG packaging.
+find "$APP_DIR" -name '._*' -type f -delete
+find "$APP_DIR" -name '._*' -type d -prune -exec rmdir {} + 2>/dev/null || true
 printf '%s\n' "編譯完成：$APP_DIR"

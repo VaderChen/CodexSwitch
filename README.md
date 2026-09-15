@@ -27,4 +27,4 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 
 ## 操作介面
 
-![CodexSwitch 操作介面](../images/cap001.jpg)
+![CodexSwitch 操作介面](images/cap001.jpg)

@@ -17,6 +17,7 @@
 .accounts-section{margin-bottom:0}.account-list+.empty{margin-bottom:0}footer{margin-top:0;padding:20px 0 0;border-top:1px solid var(--line)}
 html,body{min-height:100%;height:100%}body{min-height:100vh}.shell{min-height:100vh;display:flex;flex-direction:column}.accounts-section{flex:0 0 auto}footer{margin-top:0}
 footer{margin-top:auto;padding-bottom:24px}
+.about-link{background:transparent;color:#586678;padding:0;border:0;font-size:10px}.about-link:hover{color:var(--accent);text-decoration:underline}.about-github{background:transparent;color:var(--accent);padding:0;font-size:13px;text-decoration:underline}.about-github:hover{filter:brightness(1.1)}.update-progress{height:5px;background:#eeeaff;border-radius:4px;overflow:hidden;margin-top:14px}.update-progress span{display:block;height:100%;width:35%;background:var(--accent)}.update-progress.active span{animation:update-slide 1s ease-in-out infinite}@keyframes update-slide{0%{margin-left:-35%}100%{margin-left:100%}}
 
 /* 當前帳號標記 */
 .current-account{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:24px;height:24px;color:var(--green)}
@@ -43,3 +44,4 @@ footer{margin-top:auto;padding-bottom:24px}
 .reset-hint{font-size:11px!important;margin-top:6px!important}.hold-reset{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}.hold-reset span{position:relative;z-index:1}.hold-reset::before{content:"";position:absolute;inset:0;background:#c9baf2;transform:scaleX(0);transform-origin:left}.hold-reset.is-holding::before{transform:scaleX(1);transition:transform 2s linear}
 
 .tooltip-grid{display:grid;grid-template-columns:3.4em 3.6em auto auto;column-gap:8px;row-gap:3px;align-items:center;font-variant-numeric:tabular-nums}.tooltip-grid>span{white-space:nowrap}.tooltip-percent{text-align:right}.tooltip-updated{margin-top:5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.title-with-icon{display:flex;align-items:center;gap:11px}.app-icon{width:34px;height:34px;border-radius:9px;object-fit:cover;box-shadow:0 3px 10px #526ce533}

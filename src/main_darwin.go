@@ -10,6 +10,8 @@ import (
 	"errors"
 	"github.com/webview/webview_go"
 	"log"
+	"net/http"
+	"os/exec"
 	"strings"
 )
 
@@ -18,6 +20,9 @@ var indexHTML string
 
 //go:embed web/style.css
 var styleCSS string
+
+//go:embed assets/CodexSwitch.png
+var appIconPNG []byte
 
 // 由 build.command 注入，避免版本隨啟動時間變動。
 var appVersion = "1.00.0000"
@@ -93,6 +98,37 @@ func main() {
 	w.Bind("getAccounts", func() string {
 		b, _ := json.Marshal(manager.publicAccounts())
 		return string(b)
+	})
+	w.Bind("checkForUpdate", func() map[string]any {
+		resp, err := http.Get("https://api.github.com/repos/VaderChen/CodexSwitch/releases/latest")
+		if err != nil {
+			return map[string]any{"error": err.Error()}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return map[string]any{"error": "GitHub 回傳狀態碼 " + resp.Status}
+		}
+		var release struct {
+			TagName string `json:"tag_name"`
+			HTMLURL string `json:"html_url"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			return map[string]any{"error": err.Error()}
+		}
+		if release.TagName == "" {
+			return map[string]any{"error": "找不到最新版本"}
+		}
+		return map[string]any{"update": release.TagName != appVersion, "version": release.TagName, "url": release.HTMLURL}
+	})
+	w.Bind("openGitHub", func() { _ = exec.Command("open", "https://github.com/VaderChen/CodexSwitch").Start() })
+	w.Bind("openURL", func(url string) map[string]any {
+		if !strings.HasPrefix(url, "https://github.com/VaderChen/CodexSwitch") {
+			return map[string]any{"error": "不允許開啟此網址"}
+		}
+		if err := exec.Command("open", url).Start(); err != nil {
+			return map[string]any{"error": err.Error()}
+		}
+		return map[string]any{"ok": true}
 	})
 	// 登入在背景執行，避免阻塞 WebView 與取消操作。
 	var cancelLogin context.CancelFunc
@@ -171,5 +207,6 @@ func main() {
 
 func indexHTMLWithCSS() string {
 	page := strings.Replace(indexHTML, "/* STYLE_PLACEHOLDER */", styleCSS, 1)
+	page = strings.Replace(page, "<!-- APP_ICON -->", base64.StdEncoding.EncodeToString(appIconPNG), 1)
 	return strings.Replace(page, "<!-- APP_VERSION -->", appVersion+" build "+appBuild, 1)
 }

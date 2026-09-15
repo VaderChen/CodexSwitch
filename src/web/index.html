@@ -10,22 +10,27 @@
   <main class="shell">
 
     <section class="card login-card">
-      <div class="section-title"><div><h2>新增帳號</h2><p>按下登入後，會在預設瀏覽器完成 ChatGPT 授權。</p></div><span class="lock">⌁</span></div>
+      <div class="section-title"><div class="title-with-icon"><img class="app-icon" src="data:image/png;base64,<!-- APP_ICON -->" alt="CodexSwitch"><div><h2>新增帳號</h2><p>按下登入後，會在預設瀏覽器完成 ChatGPT 授權。</p></div></div><span class="lock">⌁</span></div>
       <label for="email">ChatGPT 帳號 Email</label>
       <div class="input-row"><input id="email" type="email" autocomplete="email" placeholder="you@example.com" /><button id="loginButton" onclick="login()"><span class="button-label">開啟瀏覽器登入</span><span class="spinner"></span></button><button id="cancelLoginButton" class="cancel-login" onclick="handleCancelLogin()" hidden>取消登入</button></div>
       <p class="hint">本機只監聽 127.0.0.1 的一次性 callback，完成後即關閉。</p>
     </section>
     <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleExportAccounts()">匯出</button><button class="detect" onclick="handleImportAccounts()">匯入</button><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
-    <footer><span>CodexSwitch · macOS</span><span id="appVersion"><!-- APP_VERSION --></span></footer>
+    <footer><button class="about-link" onclick="openAbout()">About</button><span id="appVersion"><!-- APP_VERSION --></span></footer>
   </main>
 <div id="message" class="message" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="dialog" class="dialog-backdrop" hidden><div class="dialog"><h3 id="dialogTitle"></h3><p id="dialogText"></p><div class="dialog-actions"><button id="dialogCancel" class="dialog-cancel">取消</button><button id="dialogOK" class="dialog-ok">確認套用</button></div></div></div>
 <div id="settingsDialog" class="dialog-backdrop" hidden><form class="dialog settings-dialog" onsubmit="saveSettings(event)"><h3>帳號設定</h3><p id="settingsEmail"></p><label for="settingsHome">CODEX_HOME</label><input id="settingsHome" type="text" autocomplete="off"><label for="settingsData">USER_DATA_DIR</label><input id="settingsData" type="text" autocomplete="off"><p class="settings-hint">留空會填入系統預設值，儲存後於下次套用生效。</p><div class="dialog-actions"><button type="button" class="dialog-cancel" onclick="$('settingsDialog').hidden=true">取消</button><button id="settingsSave" type="submit" class="dialog-ok">儲存</button></div></form></div>
 <div id="resetDialog" class="dialog-backdrop" hidden><div class="dialog"><h3>用量重置</h3><p id="resetEmail"></p><p id="resetCount"></p><p class="reset-hint">長按 2 秒使用 1 次重置，無法復原。</p><div id="resetCredits"></div><div class="dialog-actions"><button id="resetClose" class="dialog-cancel" onclick="closeReset()">關閉</button></div></div></div>
+<div id="aboutDialog" class="dialog-backdrop" hidden><div class="dialog about-dialog"><h3>關於 CodexSwitch</h3><p>CodexSwitch</p><p id="aboutVersion"></p><p><button class="about-github" onclick="handleOpenGitHub()">GitHub 專案</button></p><p id="updateStatus"></p><div id="updateProgress" class="update-progress" hidden><span></span></div><div class="dialog-actions"><button class="dialog-cancel" onclick="closeAbout()">關閉</button><button id="updateButton" class="dialog-ok" onclick="checkForUpdate()">檢查更新</button></div></div></div>
 <div id="accountTooltip" class="account-tooltip" role="tooltip" hidden></div>
 <script>
 const $ = id => document.getElementById(id);
 let messageTimer;
+function openAbout(){ $('aboutVersion').textContent='版本 '+$('appVersion').textContent; $('updateStatus').textContent=''; $('updateProgress').hidden=true; $('aboutDialog').hidden=false; }
+function closeAbout(){ $('aboutDialog').hidden=true; }
+function handleOpenGitHub(){ try { if(typeof window.openGitHub!=='function') throw Error('開啟 GitHub 服務尚未就緒'); window.openGitHub(); } catch(e) { setMessage(e.message||String(e),'error'); } }
+async function checkForUpdate(){ const b=$('updateButton'); b.disabled=true; $('updateStatus').textContent='正在檢查更新…'; $('updateProgress').hidden=false; $('updateProgress').classList.add('active'); try { const raw=await window.checkForUpdate(); const r=typeof raw==='string'?JSON.parse(raw):raw; if(r.error) throw Error(r.error); $('updateProgress').classList.remove('active'); if(!r.update){$('updateStatus').textContent='目前已是最新版本。';return;} $('updateStatus').textContent=`發現新版本 ${r.version}，正在開啟下載頁面。`; if(r.url && typeof window.openURL==='function'){ const opened=await window.openURL(r.url); const result=typeof opened==='string'?JSON.parse(opened):opened; if(result?.error) throw Error(result.error); } } catch(e){ $('updateProgress').classList.remove('active'); $('updateStatus').textContent='檢查更新失敗：'+(e.message||e); } finally { b.disabled=false; } }
 function setMessage(text, kind='') {
  clearTimeout(messageTimer);
  const message=$('message');
