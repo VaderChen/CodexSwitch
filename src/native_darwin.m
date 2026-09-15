@@ -1,5 +1,13 @@
 #import <Cocoa/Cocoa.h>
 
+int codexswitch_button_hints(void) {
+ id value = [[NSUserDefaults standardUserDefaults] objectForKey:@"CodexSwitch.ButtonHints"];
+ return value == nil ? 1 : [value boolValue];
+}
+void codexswitch_save_button_hints(int enabled) {
+ [[NSUserDefaults standardUserDefaults] setBool:enabled != 0 forKey:@"CodexSwitch.ButtonHints"];
+}
+
 // 透過 macOS responder chain，讓焦點所在的 WebView 或輸入欄位處理編輯操作。
 static NSMenuItem *addItem(NSMenu *menu, NSString *title, SEL action,
                            NSString *key, NSEventModifierFlags modifiers) {

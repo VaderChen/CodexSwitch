@@ -10,8 +10,9 @@ import (
 	"errors"
 	"github.com/webview/webview_go"
 	"log"
-	"net/http"
-	"os/exec"
+	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -41,6 +42,7 @@ func main() {
 	w.SetTitle("CodexSwitch")
 	w.SetSize(760, 500, webview.HintNone)
 	configureNativeWindow(w.Window())
+	w.Bind("saveButtonHints", saveButtonHintsPreference)
 	w.Bind("setWindowSize", func(width, height int) {
 		if width >= 480 && height >= 360 && width <= 2400 && height <= 1600 {
 			w.SetSize(width, height, webview.HintNone)
@@ -81,7 +83,14 @@ func main() {
 		}
 		resetBusy = true
 		go func() {
-			result, err := usage.resetAction(account, action, credit, key, resetEndpoint)
+			var result any
+			var err error
+			if action == "consume" {
+				key, err = resetRequestKey(filepath.Dir(store.path), account.ID, credit)
+			}
+			if err == nil {
+				result, err = usage.resetAction(account, action, credit, key, resetEndpoint)
+			}
 			if err != nil {
 				result = map[string]any{"error": err.Error()}
 			}
@@ -99,33 +108,16 @@ func main() {
 		b, _ := json.Marshal(manager.publicAccounts())
 		return string(b)
 	})
-	w.Bind("checkForUpdate", func() map[string]any {
-		resp, err := http.Get("https://api.github.com/repos/VaderChen/CodexSwitch/releases/latest")
-		if err != nil {
-			return map[string]any{"error": err.Error()}
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return map[string]any{"error": "GitHub 回傳狀態碼 " + resp.Status}
-		}
-		var release struct {
-			TagName string `json:"tag_name"`
-			HTMLURL string `json:"html_url"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-			return map[string]any{"error": err.Error()}
-		}
-		if release.TagName == "" {
-			return map[string]any{"error": "找不到最新版本"}
-		}
-		return map[string]any{"update": release.TagName != appVersion, "version": release.TagName, "url": release.HTMLURL}
-	})
-	w.Bind("openGitHub", func() { _ = exec.Command("open", "https://github.com/VaderChen/CodexSwitch").Start() })
+	updater := &updateService{onRestart: func() { w.Dispatch(func() { w.Terminate() }) }}
+	w.Bind("checkForUpdate", func() { updater.check(appVersion + " build " + appBuild) })
+	w.Bind("getUpdateStatus", updater.snapshot)
+	w.Bind("installUpdate", updater.install)
+	w.Bind("openGitHub", func() error { return openBrowser("https://github.com/VaderChen/CodexSwitch") })
 	w.Bind("openURL", func(url string) map[string]any {
-		if !strings.HasPrefix(url, "https://github.com/VaderChen/CodexSwitch") {
+		if !allowedProjectURL(url) {
 			return map[string]any{"error": "不允許開啟此網址"}
 		}
-		if err := exec.Command("open", url).Start(); err != nil {
+		if err := openBrowser(url); err != nil {
 			return map[string]any{"error": err.Error()}
 		}
 		return map[string]any{"ok": true}
@@ -171,14 +163,22 @@ func main() {
 		b, _ := json.Marshal(map[string]any{"account": a.Public()})
 		return string(b)
 	})
-	w.Bind("useAccount", func(id string) string {
-		r, err := manager.useAccount(id)
-		if err != nil {
-			b, _ := json.Marshal(map[string]any{"error": err.Error()})
-			return string(b)
+	applyBusy := false
+	w.Bind("useAccount", func(id string) map[string]any {
+		if applyBusy {
+			return map[string]any{"error": "正在套用帳號，請稍候"}
 		}
-		b, _ := json.Marshal(r)
-		return string(b)
+		applyBusy = true
+		go func() {
+			r, err := manager.useAccount(id)
+			var result any = r
+			if err != nil {
+				result = map[string]any{"error": err.Error()}
+			}
+			b, _ := json.Marshal(result)
+			w.Dispatch(func() { applyBusy = false; w.Eval("window.resolveApply && window.resolveApply(" + string(b) + ")") })
+		}()
+		return map[string]any{"pending": true}
 	})
 	w.Bind("exportAccounts", func() string {
 		if err := store.exportFile(); err != nil {
@@ -207,6 +207,12 @@ func main() {
 
 func indexHTMLWithCSS() string {
 	page := strings.Replace(indexHTML, "/* STYLE_PLACEHOLDER */", styleCSS, 1)
+	page = strings.Replace(page, "<!-- BUTTON_HINTS -->", strconv.FormatBool(buttonHintsPreference()), 1)
 	page = strings.Replace(page, "<!-- APP_ICON -->", base64.StdEncoding.EncodeToString(appIconPNG), 1)
 	return strings.Replace(page, "<!-- APP_VERSION -->", appVersion+" build "+appBuild, 1)
+}
+
+func allowedProjectURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host == "github.com" && u.User == nil && (u.Path == "/VaderChen/CodexSwitch" || strings.HasPrefix(u.Path, "/VaderChen/CodexSwitch/"))
 }

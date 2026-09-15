@@ -419,13 +419,45 @@ func (s *accountStore) importFile() error {
 	if err = json.Unmarshal(data, &accounts); err != nil {
 		return fmt.Errorf("匯入 JSON 格式錯誤：%w", err)
 	}
+	return s.importAccounts(accounts)
+}
+
+// 完整驗證後一次寫入，避免匯入半套資料或信任外部提供的 ID。
+func (s *accountStore) importAccounts(accounts []Account) error {
+	validated := make([]Account, 0, len(accounts))
 	for _, a := range accounts {
-		if a.Email == "" || len(a.Auth) == 0 {
-			continue
+		identity, err := accountFromAuth(a.Auth)
+		if err != nil || !strings.EqualFold(a.Email, identity.Email) {
+			return errors.New("匯入帳號與登入憑證不一致或不完整")
 		}
-		if err = s.upsert(a); err != nil {
+		a.ID = identity.ID
+		a.AccessToken, a.RefreshToken = identity.AccessToken, identity.RefreshToken
+		if _, _, err = accountDirectories(a); err != nil {
 			return err
 		}
+		validated = append(validated, a)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := append([]Account(nil), s.accounts...)
+	for _, a := range validated {
+		found := false
+		for i, old := range s.accounts {
+			if strings.EqualFold(old.Email, a.Email) {
+				a.ID = old.ID
+				a.CreatedAt = old.CreatedAt
+				s.accounts[i] = a
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.accounts = append(s.accounts, a)
+		}
+	}
+	if err := s.saveLocked(); err != nil {
+		s.accounts = previous
+		return err
 	}
 	return nil
 }

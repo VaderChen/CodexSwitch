@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -147,30 +148,9 @@ func environmentFile(a Account, authPath string) []byte {
 func (m *loginManager) useAccount(id string) (switchResult, error) {
 	m.authMu.Lock()
 	defer m.authMu.Unlock()
-	if codexRunning() {
-		_ = exec.Command("osascript", "-e", `tell application id "com.openai.codex" to quit`).Run()
-		deadline := time.Now().Add(5 * time.Second)
-		for codexRunning() && time.Now().Before(deadline) {
-			time.Sleep(200 * time.Millisecond)
-		}
-		if codexRunning() {
-			return switchResult{}, errors.New("Codex App 無法自動關閉，請先手動完全關閉 Codex App，再重新按「套用」")
-		}
-	}
-	appPath := os.Getenv("CODEX_APP_PATH")
-	if appPath == "" {
-		for _, candidate := range []string{"/Applications/Codex.app", "/Applications/ChatGPT.app", filepath.Join(os.Getenv("HOME"), "Applications/Codex.app")} {
-			if _, err := os.Stat(candidate); err == nil {
-				appPath = candidate
-				break
-			}
-		}
-	}
-	if appPath == "" {
-		return switchResult{}, errors.New("找不到 Codex App，請設定 CODEX_APP_PATH")
-	}
-	if _, err := os.Stat(appPath); err != nil {
-		return switchResult{}, fmt.Errorf("找不到 Codex App：%s", appPath)
+	exe, err := resolveCodexExecutable()
+	if err != nil {
+		return switchResult{}, err
 	}
 	var target Account
 	for _, a := range m.store.list() {
@@ -193,6 +173,21 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	authPath, err = filepath.Abs(authPath)
 	if err != nil {
 		return switchResult{}, err
+	}
+	if validated, err := accountFromAuth(target.Auth); err != nil || !strings.EqualFold(validated.Email, target.Email) {
+		return switchResult{}, errors.New("此帳號的登入憑證不完整或不一致，請重新偵測")
+	}
+	if codexRunning() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = exec.CommandContext(ctx, "osascript", "-e", `tell application id "com.openai.codex" to quit`).Run()
+		cancel()
+		deadline := time.Now().Add(5 * time.Second)
+		for codexRunning() && time.Now().Before(deadline) {
+			time.Sleep(200 * time.Millisecond)
+		}
+		if codexRunning() {
+			return switchResult{}, errors.New("Codex App 無法自動關閉，請先手動完全關閉再套用")
+		}
 	}
 	// Preserve freshly rotated credentials for the outgoing account before replacement.
 	outgoingPath, err := m.activeAuthPath()
@@ -257,13 +252,6 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 		return switchResult{}, err
 	}
 	// Start Codex with the same per-process environment model as runMyCodex.command.
-	exe := os.Getenv("CODEX_EXE")
-	if exe == "" {
-		exe = "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
-	}
-	if _, err := os.Stat(exe); err != nil {
-		return switchResult{}, fmt.Errorf("設定已更新，但找不到 Codex 執行檔：%s", exe)
-	}
 	cmd := exec.Command(exe)
 	cmd.Env = append(codexLaunchEnvironment(os.Environ(), filepath.Dir(authPath)), "USER_DATA_DIR="+userData, "CODEX_USER_DATA_DIR="+userData)
 	cmd.Args = append(cmd.Args, "--user-data-dir="+userData)
@@ -409,4 +397,41 @@ func codexLaunchEnvironment(inherited []string, home string) []string {
 		}
 	}
 	return append(result, "CODEX_HOME="+home)
+}
+
+// 以實際 bundle metadata 找執行檔；在修改憑證與關閉 App 之前驗證。
+func resolveCodexExecutable() (string, error) {
+	check := func(path string) (string, error) {
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return "", fmt.Errorf("Codex 執行檔不存在或無執行權限：%s", path)
+		}
+		return filepath.Abs(path)
+	}
+	if exe := os.Getenv("CODEX_EXE"); exe != "" {
+		return check(exe)
+	}
+	candidates := []string{os.Getenv("CODEX_APP_PATH")}
+	explicit := candidates[0] != ""
+	if !explicit {
+		home, _ := os.UserHomeDir()
+		candidates = []string{"/Applications/Codex.app", filepath.Join(home, "Applications", "Codex.app"), "/Applications/ChatGPT.app"}
+	}
+	for _, app := range candidates {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		id, err := exec.CommandContext(ctx, "/usr/libexec/PlistBuddy", "-c", "Print CFBundleIdentifier", filepath.Join(app, "Contents", "Info.plist")).Output()
+		cancel()
+		if err != nil || strings.TrimSpace(string(id)) != "com.openai.codex" {
+			continue
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+		raw, err := exec.CommandContext(ctx, "/usr/libexec/PlistBuddy", "-c", "Print CFBundleExecutable", filepath.Join(app, "Contents", "Info.plist")).Output()
+		cancel()
+		name := strings.TrimSpace(string(raw))
+		if err != nil || name == "" || filepath.Base(name) != name || name == ".." {
+			continue
+		}
+		return check(filepath.Join(app, "Contents", "MacOS", name))
+	}
+	return "", errors.New("找不到有效的 Codex App，請設定 CODEX_APP_PATH 或 CODEX_EXE")
 }

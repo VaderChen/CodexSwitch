@@ -5,9 +5,9 @@ const vm=require('node:vm');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../web/index.html'),'utf8');
 function setup(startLogin) {
  const elements={};
- for(const id of ['email','loginButton','cancelLoginButton','message','count','empty','accountList']) elements[id]={value:'user@example.com',style:{},disabled:false,classList:new Set(),focus(){},checkValidity(){return true;}};
+ for(const id of ['buttonHintsToggle','buttonTooltip','email','loginButton','cancelLoginButton','message','count','empty','accountList']) elements[id]={value:'user@example.com',style:{},addEventListener(){},disabled:false,classList:new Set(),focus(){},checkValidity(){return true;}};
  elements.loginButton.classList.remove=elements.loginButton.classList.delete;
- const context=vm.createContext({document:{addEventListener(){},getElementById:id=>elements[id]||null},window:{startLogin,getAccounts:async()=> '[]'},setTimeout,clearTimeout,setInterval:()=>0});
+ const context=vm.createContext({document:{querySelectorAll(){return []},addEventListener(){},getElementById:id=>elements[id]||null},window:{startLogin,getAccounts:async()=> '[]'},MutationObserver:class {observe(){}},setTimeout,clearTimeout,setInterval:()=>0});
  vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],context);
  return {elements,context,run:()=>vm.runInContext('login()',context)};
 }

@@ -5,14 +5,14 @@ const vm=require('node:vm');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../web/index.html'),'utf8');
 function setup(backend){
  const elements={};
- for(const id of ['message','count','empty','accountList','dialog','dialogTitle','dialogText','dialogOK','dialogCancel'])elements[id]={hidden:true,style:{}};
- const global={document:{addEventListener(){},getElementById:id=>elements[id]},useAccount:backend,getAccounts:async()=> '[]',setTimeout,clearTimeout,setInterval:()=>0};
+ for(const id of ['buttonHintsToggle','buttonTooltip','message','count','empty','accountList','dialog','dialogTitle','dialogText','dialogOK','dialogCancel'])elements[id]={hidden:true,style:{},addEventListener(){}};
+ const global={document:{querySelectorAll(){return []},addEventListener(){},getElementById:id=>elements[id]},useAccount:backend,getAccounts:async()=> '[]',MutationObserver:class {observe(){}},setTimeout,clearTimeout,setInterval:()=>0};
  // In WebView, window IS the global object. A separate window mock misses collisions.
  global.window=global;
  const context=vm.createContext(global);
  vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],context);
  assert.equal(context.useAccount,backend,'page must not overwrite the Go binding');
- return {elements,run:()=>vm.runInContext("handleApplyAccount('test-account')",context)};
+ return {elements,context,run:()=>vm.runInContext("handleApplyAccount('test-account')",context)};
 }
 const flush=()=>new Promise(r=>setImmediate(r));
 test('confirmation closes; backend called once; success dialog dismisses',async()=>{
@@ -36,4 +36,14 @@ test('cancel does not call backend',async()=>{
 });
 test('backend error shows dismissible failure dialog',async()=>{
  const h=setup(async()=>'{"error":"test failure"}');const pending=h.run();h.elements.dialogOK.onclick();await flush();assert.equal(h.elements.dialogTitle.textContent,'套用失敗');assert.equal(h.elements.dialogText.textContent,'test failure');h.elements.dialogOK.onclick();await pending;assert.equal(h.elements.dialog.hidden,true);
+});
+
+test('background apply completion closes confirmation and reports result',async()=>{
+ let calls=0;const h=setup(async()=>{calls++;return '{"pending":true}'});
+ const pending=h.run();h.elements.dialogOK.onclick();await flush();
+ assert.equal(calls,1);assert.equal(h.elements.dialog.hidden,true);
+ h.context.resolveApply({email:'test@example.com'});await flush();
+ assert.equal(h.elements.dialogTitle.textContent,'套用完成');
+ h.elements.dialogOK.onclick();await pending;
+ assert.equal(h.context.resolveApply,null);
 });

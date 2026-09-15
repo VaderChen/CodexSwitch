@@ -4,7 +4,7 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 
 ## 操作介面
 
-![CodexSwitch 操作介面](images/cap001.jpg)
+<img src="images/cap001.jpg" alt="CodexSwitch 操作介面" width="480">
 
 ## 功能與特色
 
@@ -23,5 +23,4 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 雙擊 `run.command` 即可啟動 CodexSwitch。第一次使用時，按下「開啟瀏覽器登入」完成帳號登入。
 
 在帳號列表中按「套用」，即可切換到指定帳號。CodexSwitch 會先確認 Codex App 狀態，完成後啟動對應帳號。
-
 
