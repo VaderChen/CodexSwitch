@@ -199,6 +199,10 @@ function remainingText(window){return window && Number.isFinite(window.remaining
 function usageText(value){
  return `${remainingText(usageWindow(value,18000))} / ${remainingText(usageWindow(value,604800))}`;
 }
+function nextResetText(value,now=Date.now()){
+ const times=(value?.windows||[]).filter(w=>w.seconds===18000||w.seconds===604800).map(w=>w.reset_at*1000).filter(t=>Number.isFinite(t)&&t>now);
+ return times.length?formatDate(Math.min(...times)):'-';
+}
 function accountDetails(account,value){
  const windowLine=(label,seconds)=>{
   const w=usageWindow(value,seconds);
@@ -248,6 +252,7 @@ async function refreshUsage(){
    el.textContent=usageText(value);
    el.classList.toggle('usage-stale',Boolean(value?.error && value?.windows?.length));
   });
+  document.querySelectorAll('[data-reset-id]').forEach(el=>{el.textContent=nextResetText(usageCache[el.dataset.resetId]);});
   updateAccountTooltip();
  }catch(_){/* 背景查詢失敗不打斷目前操作。 */}
  finally{usagePollBusy=false;}
@@ -321,7 +326,7 @@ async function dropAccount(event){
  }catch(e){await loadAccounts();setMessage(e.message||String(e),'error');}
  finally{reorderBusy=false;}
 }
-function render(accounts) { hideAccountTooltip(); accountRows=accounts; $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account" data-account-id="${esc(a.id)}" ondragover="accountDragOver(event)" ondragleave="accountDragLeave(event)" ondrop="dropAccount(event)"><button class="avatar account-settings" data-tooltip="Codex 環境設定：設定此帳號使用的 CODEX_HOME 與 USER_DATA_DIR，下次套用時生效。" aria-label="${esc(a.email)} 的 Codex 環境設定" data-action="settings">⚙</button><div class="account-info" tabindex="0" onmouseenter="showAccountTooltip(event)" onmouseleave="hideAccountTooltip()" onfocus="showAccountTooltip(event)" onblur="hideAccountTooltip()" draggable="true" ondragstart="startAccountDrag(event)" ondragend="endAccountDrag()"><strong>${esc(a.email)}</strong><span>${formatDate(a.updated_at)} · <em class="account-usage" data-usage-id="${esc(a.id)}">${esc(usageText(usageCache[a.id]))}</em></span></div>${a.is_current ? '<span class="current-account" role="img" aria-label="當前帳號" title="當前帳號"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12 3 3 6-6"/></svg></span>' : ''}<span class="connected">已連結</span><button class="use-account reset-account" data-action="reset">重置</button><button class="use-account" ${a.is_current ? 'disabled title="目前正在使用此帳號"' : ''} data-action="apply">套用</button><button class="delete" title="移除帳號" data-action="remove">×</button></article>`).join(''); refreshUsage(); }
+function render(accounts) { hideAccountTooltip(); accountRows=accounts; $('count').textContent=`${accounts.length} 個帳號`; $('empty').style.display=accounts.length?'none':'flex'; $('accountList').innerHTML=accounts.map(a=>`<article class="account" data-account-id="${esc(a.id)}" ondragover="accountDragOver(event)" ondragleave="accountDragLeave(event)" ondrop="dropAccount(event)"><button class="avatar account-settings" data-tooltip="Codex 環境設定：設定此帳號使用的 CODEX_HOME 與 USER_DATA_DIR，下次套用時生效。" aria-label="${esc(a.email)} 的 Codex 環境設定" data-action="settings">⚙</button><div class="account-info" tabindex="0" onmouseenter="showAccountTooltip(event)" onmouseleave="hideAccountTooltip()" onfocus="showAccountTooltip(event)" onblur="hideAccountTooltip()" draggable="true" ondragstart="startAccountDrag(event)" ondragend="endAccountDrag()"><strong>${esc(a.email)}</strong><span><time data-reset-id="${esc(a.id)}" title="下一次自動重置">${esc(nextResetText(usageCache[a.id]))}</time> · <em class="account-usage" data-usage-id="${esc(a.id)}">${esc(usageText(usageCache[a.id]))}</em></span></div>${a.is_current ? '<span class="current-account" role="img" aria-label="當前帳號" title="當前帳號"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12 3 3 6-6"/></svg></span>' : ''}<span class="connected">已連結</span><button class="use-account reset-account" data-action="reset">重置</button><button class="use-account" ${a.is_current ? 'disabled title="目前正在使用此帳號"' : ''} data-action="apply">套用</button><button class="delete" title="移除帳號" data-action="remove">×</button></article>`).join(''); refreshUsage(); }
 let settingsAccountID='';
 let settingsDefaults={};
 async function openSettings(id) {
