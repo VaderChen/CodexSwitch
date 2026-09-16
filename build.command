@@ -28,6 +28,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+<key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleName</key><string>CodexSwitch</string>
 <key>CFBundleDisplayName</key><string>CodexSwitch</string>
 <key>CFBundleIdentifier</key><string>com.vader.codexswitch</string>
