@@ -4,3 +4,6 @@
 *.bak
 .DS_Store
 ._*
+
+# 本機簽署與封裝腳本
+/pack.command
