@@ -13,8 +13,8 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 - 套用前自動關閉已開啟的 Codex App
 - 匯入與匯出帳號列表
 - 偵測目前使用中的 Codex 帳號
-- 顯示帳號連結狀態與更新時間
-- 顯示 **帳號剩餘用量**
+- 顯示帳號連結狀態與下一次自動重置時間
+- 背景更新 **帳號剩餘用量**，以「五小時 / 七天」百分比呈現，缺少資料顯示 `-`
 - 支援 **用量重置操作**
 - 支援 Codex 環境設定與帳號資料安全保存
 - 按鈕說明泡泡可隨時開關
@@ -26,3 +26,24 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 雙擊 `run.command` 即可啟動 CodexSwitch。第一次使用時，按下「開啟瀏覽器登入」完成帳號登入。
 
 在帳號列表中按「套用」，即可切換到指定帳號。CodexSwitch 會先確認 Codex App 狀態，完成後啟動對應帳號。
+
+## 下載與更新
+
+從 [最新 Release](https://github.com/VaderChen/CodexSwitch/releases/latest) 下載 DMG，開啟後將 CodexSwitch 拖入「應用程式」。目前發布 Apple Silicon（`arm64`）版本。
+
+DMG 檔名格式為 `CodexSwitch-1.YY.MMDD-build-HHmm-arm64.dmg`，例如 `CodexSwitch-1.26.0916-build-0917-arm64.dmg`。正式版本經 Developer ID 簽署與 Apple 公證，Release 同時提供 `PACKAGES-SHA256SUMS` 校驗檔。
+
+App 的「關於」對話框可檢查更新；私人倉庫需先透過 `gh auth login` 登入有讀取權限的 GitHub 帳號。
+
+## 帳號用量與設定
+
+- 帳號列日期顯示五小時、七天用量中，最近一次即將到來的自動重置時間；沒有有效時間時顯示 `-`。
+- 將游標移至帳號，可查看兩種用量各自的自動重置時間。
+- 用量重置需長按 2 秒，會使用帳號可用的重置次數。
+- 齒輪設定可指定每個帳號的 `CODEX_HOME` 與 `USER_DATA_DIR`；留空會填入系統預設值，下次套用生效。
+
+## 建置與封裝
+
+macOS 開發環境需安裝 Go 與 Xcode Command Line Tools。執行 `./build.command` 產生 `dist/CodexSwitch.app`；建置前會清空 `dist`。
+
+`pack.command` 為本機維護的簽署與封裝腳本，不包含在 GitHub 倉庫。發布 DMG 放在 `dist`，打包完成後移除中繼資料。從 GitHub 取得原始碼後，請使用 `build.command` 建置，或直接下載 Release。
