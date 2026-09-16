@@ -57,63 +57,95 @@ func accountFromAuth(data []byte) (Account, error) {
 }
 
 // 只讀取目前登入身分，列表更新不會修改已儲存的憑證。
+// 每個執行中的實例依自己的 CODEX_HOME 讀取帳號；不使用全域 active-profile 推斷。
+func readRunningAccounts(instances []codexInstance) ([]Account, error) {
+	var result []Account
+	seen := map[string]bool{}
+	for _, p := range instances {
+		key := p.Home + "\x00" + p.Data
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		raw, err := os.ReadFile(filepath.Join(p.Home, "auth.json"))
+		if err != nil {
+			return nil, fmt.Errorf("無法讀取 Codex 程序 %d 的登入檔", p.PID)
+		}
+		a, err := accountFromAuth(raw)
+		if err != nil {
+			return nil, fmt.Errorf("Codex 程序 %d 的登入檔無效", p.PID)
+		}
+		a.CodexHome, a.UserDataDir = p.Home, p.Data
+		result = append(result, a)
+	}
+	return result, nil
+}
+func accountIsRunning(a Account, running []Account) bool {
+	home, data, err := accountDirectories(a)
+	if err != nil {
+		return false
+	}
+	home, err = canonicalProcessPath(home)
+	if err != nil {
+		return false
+	}
+	data, err = canonicalProcessPath(data)
+	if err != nil {
+		return false
+	}
+	for _, r := range running {
+		if strings.EqualFold(a.Email, r.Email) && home == r.CodexHome && data == r.UserDataDir {
+			return true
+		}
+	}
+	return false
+}
 func (m *loginManager) publicAccounts() []PublicAccount {
 	m.authMu.Lock()
 	defer m.authMu.Unlock()
-	var currentEmail string
-	if path, err := m.activeAuthPath(); err == nil {
-		if data, err := os.ReadFile(path); err == nil {
-			if current, err := accountFromAuth(data); err == nil {
-				currentEmail = current.Email
-			}
-		}
+	var running []Account
+	if instances, err := runningCodexInstances(); err == nil {
+		running, _ = readRunningAccounts(instances)
 	}
 	accounts := m.store.list()
 	out := make([]PublicAccount, 0, len(accounts))
-	for _, account := range accounts {
-		item := account.Public()
-		home, data, _ := accountDirectories(account)
-		item.CodexHome, item.UserDataDir = home, data
-		activePath, _ := m.activeAuthPath()
-		var profile activeProfile
-		profileData, _ := os.ReadFile(m.profilePath())
-		_ = json.Unmarshal(profileData, &profile)
-		_, defaultData, _ := accountDirectories(Account{})
-		if profile.UserDataDir == "" {
-			profile.UserDataDir = defaultData
-		}
-		item.IsCurrent = currentEmail != "" && strings.EqualFold(account.Email, currentEmail) && filepath.Join(home, "auth.json") == activePath && data == profile.UserDataDir
+	for _, a := range accounts {
+		item := a.Public()
+		item.CodexHome, item.UserDataDir, _ = accountDirectories(a)
+		item.IsCurrent = accountIsRunning(a, running)
 		out = append(out, item)
 	}
 	return out
 }
-
-func (m *loginManager) detectCurrent() (Account, error) {
+func (m *loginManager) detectCurrent() ([]PublicAccount, error) {
 	m.authMu.Lock()
 	defer m.authMu.Unlock()
-	path, err := m.activeAuthPath()
+	instances, err := runningCodexInstances()
 	if err != nil {
-		return Account{}, err
+		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	running, err := readRunningAccounts(instances)
 	if err != nil {
-		return Account{}, fmt.Errorf("無法讀取 Codex 登入檔：%w", err)
+		return nil, err
 	}
-	a, err := accountFromAuth(data)
-	if err != nil {
-		return Account{}, err
+	if len(running) == 0 {
+		return nil, errors.New("目前沒有執行中的 Codex App")
 	}
-	for _, old := range m.store.list() {
-		if strings.EqualFold(old.Email, a.Email) {
-			a.ID = old.ID
-			a.CreatedAt = old.CreatedAt
+	// 全部解析成功才開始儲存，既有帳號維持使用者設定的目錄。
+	seen := map[string]bool{}
+	var result []PublicAccount
+	for _, a := range running {
+		key := strings.ToLower(a.Email)
+		if seen[key] {
+			continue
 		}
+		seen[key] = true
+		if err := m.store.upsert(a); err != nil {
+			return nil, err
+		}
+		result = append(result, a.Public())
 	}
-	// Refresh existing records too: Codex can rotate refresh tokens between switches.
-	if err := m.store.upsert(a); err != nil {
-		return Account{}, err
-	}
-	return a, nil
+	return result, nil
 }
 
 type switchResult struct {
@@ -177,24 +209,12 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	if validated, err := accountFromAuth(target.Auth); err != nil || !strings.EqualFold(validated.Email, target.Email) {
 		return switchResult{}, errors.New("此帳號的登入憑證不完整或不一致，請重新偵測")
 	}
-	if codexRunning() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = exec.CommandContext(ctx, "osascript", "-e", `tell application id "com.openai.codex" to quit`).Run()
-		cancel()
-		deadline := time.Now().Add(5 * time.Second)
-		for codexRunning() && time.Now().Before(deadline) {
-			time.Sleep(200 * time.Millisecond)
-		}
-		if codexRunning() {
-			return switchResult{}, errors.New("Codex App 無法自動關閉，請先手動完全關閉再套用")
-		}
-	}
-	// Preserve freshly rotated credentials for the outgoing account before replacement.
-	outgoingPath, err := m.activeAuthPath()
-	if err != nil {
+	if err := closeTargetCodex(home, userData, runningCodexInstances, terminateCodexInstance); err != nil {
 		return switchResult{}, err
 	}
-	current, err := os.ReadFile(outgoingPath)
+
+	// Preserve freshly rotated credentials for the outgoing account before replacement.
+	current, err := os.ReadFile(authPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return switchResult{}, err
 	}
@@ -261,8 +281,6 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	go func() { _ = cmd.Wait() }()
 	return switchResult{Email: validated.Email, EnvPath: envPath}, nil
 }
-
-func codexRunning() bool { return nativeCodexRunning() }
 
 type fileUpdate struct {
 	path string

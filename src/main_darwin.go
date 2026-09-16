@@ -161,7 +161,7 @@ func main() {
 			b, _ := json.Marshal(map[string]any{"error": err.Error()})
 			return string(b)
 		}
-		b, _ := json.Marshal(map[string]any{"account": a.Public()})
+		b, _ := json.Marshal(map[string]any{"accounts": a, "count": len(a)})
 		return string(b)
 	})
 	applyBusy := false

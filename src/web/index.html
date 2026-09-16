@@ -57,7 +57,7 @@ const buttonDescriptions={
  '重置':'搜尋該帳號之重置卷、在列表中長按後可重置額度',
  '套用':'立即更新 Codex App 設定與環境參數來使用此帳號',
  '匯出':'匯出帳號列表與相關資料', '匯入':'匯入帳號列表與相關資料',
- '偵測目前帳號':'讀取目前 Codex App 使用中的帳號', '↻':'重新整理帳號列表',
+ '偵測目前帳號':'偵測所有執行中的 Codex App 帳號', '↻':'重新整理帳號列表',
  '長按重置':'長按 2 秒以使用這張重置卷並重置額度', '關閉':'關閉目前視窗',
  '儲存':'儲存Codex 環境設定', '取消':'取消目前操作', '確認套用':'確認套用此帳號'
 };
@@ -402,7 +402,7 @@ async function login() {
 }
 async function handleExportAccounts(){try{const r=JSON.parse(await window.exportAccounts());if(r.error)throw Error(r.error);setMessage('帳號已匯出。','success')}catch(e){setMessage(e.message||String(e),'error')}}
 async function handleImportAccounts(){try{const r=JSON.parse(await window.importAccounts());if(r.error)throw Error(r.error);await loadAccounts();setMessage('帳號已匯入。','success')}catch(e){setMessage(e.message||String(e),'error')}}
-async function handleDetectCurrent() { try { if (typeof window.detectCurrent !== 'function') throw new Error('偵測服務尚未就緒，請重新啟動 App'); const raw=await window.detectCurrent(); const r=typeof raw==='string'?JSON.parse(raw):raw; if (!r || typeof r !== 'object') throw new Error('偵測服務回傳格式錯誤'); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage('已偵測並儲存目前帳號。','success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
+async function handleDetectCurrent() { try { if (typeof window.detectCurrent !== 'function') throw new Error('偵測服務尚未就緒，請重新啟動 App'); const raw=await window.detectCurrent(); const r=typeof raw==='string'?JSON.parse(raw):raw; if (!r || typeof r !== 'object') throw new Error('偵測服務回傳格式錯誤'); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage(`已偵測並儲存 ${r.count} 個使用中的帳號。`,'success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
 let applyBusy = false;
 function showDialog(title, text, okLabel='確認套用', confirmMode=true) {
  return new Promise(resolve => {

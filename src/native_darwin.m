@@ -1,4 +1,13 @@
 #import <Cocoa/Cocoa.h>
+#include <libproc.h>
+
+// NSRunningApplication.launchDate 可能為 nil，改用核心程序資訊辨識 PID 世代。
+static double codexswitch_process_start(pid_t pid) {
+ struct proc_bsdinfo info = {0};
+ if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) return 0;
+ return (double)info.pbi_start_tvsec + (double)info.pbi_start_tvusec / 1000000.0;
+}
+
 
 int codexswitch_button_hints(void) {
  id value = [[NSUserDefaults standardUserDefaults] objectForKey:@"CodexSwitch.ButtonHints"];
@@ -69,11 +78,37 @@ void codexswitch_configure_window(void *ptr) {
  [NSApp setMainMenu:main];
 }
 
-int codexswitch_codex_running(void) {
+// 只列出主 App，不包含 Helper、CLI 或其他同名程式。
+char *codexswitch_instances(void) {
  @autoreleasepool {
+  NSMutableArray *items = [NSMutableArray array];
   for (NSRunningApplication *app in [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.openai.codex"]) {
-   if (!app.terminated) return 1;
+   if (!app.terminated) {
+    [items addObject:@{@"pid": @(app.processIdentifier), @"started": @(codexswitch_process_start(app.processIdentifier))}];
+   }
   }
-  return 0;
+  NSData *data = [NSJSONSerialization dataWithJSONObject:items options:0 error:nil];
+  return data ? strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String) : NULL;
+ }
+}
+
+#include <sys/sysctl.h>
+#include <stdlib.h>
+#include <string.h>
+char *codexswitch_procargs(int pid, int *length) {
+ int limit = 0; size_t size = sizeof(limit); int argmax[] = {CTL_KERN, KERN_ARGMAX};
+ if (sysctl(argmax, 2, &limit, &size, NULL, 0) != 0 || limit <= 0) return NULL;
+ char *buffer = malloc(limit); if (!buffer) return NULL;
+ int mib[] = {CTL_KERN, KERN_PROCARGS2, pid}; size = limit;
+ if (sysctl(mib, 3, buffer, &size, NULL, 0) != 0) { free(buffer); return NULL; }
+ *length = (int)size; return buffer;
+}
+int codexswitch_terminate_instance(int pid, double started) {
+ @autoreleasepool {
+  NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+  if (!app || app.terminated) return 1;
+  if (![app.bundleIdentifier isEqualToString:@"com.openai.codex"] || started <= 0 ||
+      codexswitch_process_start(pid) != started) return 0;
+  return [app terminate] ? 1 : 0;
  }
 }
