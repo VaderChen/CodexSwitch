@@ -448,7 +448,25 @@ async function handleApplyAccount(id) {
   window.resolveApply=null;
  }
 }
-async function removeAccount(id) { if(!confirm('確定要移除此帳號？本機儲存的 token 也會刪除。')) return; try { const r=JSON.parse(await window.deleteAccount(id)); if(r.error) throw new Error(r.error); await loadAccounts(); setMessage('帳號已移除。','success'); } catch(e) { setMessage(e.message||String(e),'error'); } }
+let removeBusy=false;
+async function removeAccount(id) {
+ if(removeBusy || applyBusy || !$('dialog').hidden)return;
+ removeBusy=true;
+ try {
+  hideAccountTooltip();
+  const account=accountRows.find(a=>a.id===id);
+  const name=account?.email||'此帳號';
+  if(!await showDialog('移除帳號',`確定要移除 ${name}？CodexSwitch 儲存的登入資料也會刪除。`,'確認移除'))return;
+  if(typeof window.deleteAccount!=='function')throw new Error('移除服務尚未就緒，請重新啟動 CodexSwitch');
+  const raw=await window.deleteAccount(id);
+  const result=typeof raw==='string'?JSON.parse(raw):raw;
+  if(!result || result.error)throw new Error(result?.error||'移除服務回傳格式錯誤');
+  await loadAccounts();
+  setMessage('帳號已移除。','success');
+ } catch(e) { setMessage(e.message||String(e),'error'); }
+ finally { removeBusy=false; }
+}
+
 // 系統編輯快捷鍵交由原生選單處理；Escape 關閉最上層對話框。
 document.addEventListener('keydown',event=>{
  if(event.key!=='Escape' || event.isComposing)return;

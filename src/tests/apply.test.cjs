@@ -47,3 +47,26 @@ test('background apply completion closes confirmation and reports result',async(
  h.elements.dialogOK.onclick();await pending;
  assert.equal(h.context.resolveApply,null);
 });
+
+
+test('移除 DLG 取消不刪除；確認僅刪除一次並更新列表',async()=>{
+ const h=setup(async()=>{});let calls=0,finish;
+ h.context.deleteAccount=id=>{assert.equal(id,'test-account');calls++;return new Promise(r=>finish=r)};
+ const run=()=>vm.runInContext("removeAccount('test-account')",h.context);
+ let pending=run();assert.equal(h.elements.dialog.hidden,false);
+ assert.equal(h.elements.dialogOK.textContent,'確認移除');assert.equal(calls,0);
+ h.elements.dialogCancel.onclick();await pending;assert.equal(calls,0);
+ pending=run();h.elements.dialogOK.onclick();await flush();assert.equal(calls,1);
+ await run();assert.equal(calls,1);
+ finish('{"ok":true}');await pending;
+ assert.equal(h.elements.message.textContent,'帳號已移除。');
+ assert.equal(h.elements.dialog.hidden,true);
+});
+test('移除失敗顯示錯誤且可重試',async()=>{
+ const h=setup(async()=>{});h.context.deleteAccount=async()=>({error:'寫入失敗'});
+ let pending=vm.runInContext("removeAccount('test-account')",h.context);
+ h.elements.dialogOK.onclick();await pending;
+ assert.equal(h.elements.message.textContent,'寫入失敗');
+ pending=vm.runInContext("removeAccount('test-account')",h.context);
+ assert.equal(h.elements.dialog.hidden,false);h.elements.dialogCancel.onclick();await pending;
+});
