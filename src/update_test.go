@@ -88,3 +88,23 @@ func TestUpdateRequestCanTimeOut(t *testing.T) {
 		t.Fatal("請求必須可逾時")
 	}
 }
+
+func TestForceUpdateSelectsLatestEvenWhenNotNewer(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(releaseInfo{Tag: "1.26.0915-build-2146", Assets: []releaseAsset{{ID: 1, Name: "CodexSwitch-1.26.0915-build-2146-arm64.dmg", Size: 10, Digest: digest}}})
+	}))
+	defer server.Close()
+	for _, current := range []string{"1.26.0915 build 2146", "1.26.0916 build 1200"} {
+		if _, _, found, err := fetchReleaseMode(context.Background(), server.URL, "", current, "arm64", false); err != nil || found {
+			t.Fatal("一般更新不應重裝相同或舊版")
+		}
+		if _, a, found, err := fetchReleaseMode(context.Background(), server.URL, "", current, "arm64", true); err != nil || !found || a.ID != 1 {
+			t.Fatal("強制更新應選擇最新正式版附件")
+		}
+	}
+	digest = "invalid"
+	if _, _, _, err := fetchReleaseMode(context.Background(), server.URL, "", "1.26.0915 build 2146", "arm64", true); err == nil {
+		t.Fatal("強制更新不可略過校驗要求")
+	}
+}

@@ -33,7 +33,11 @@ CodexSwitch 是 macOS 上的 Codex 帳號管理工具，讓你在多個 Codex �
 
 DMG 檔名格式為 `CodexSwitch-1.YY.MMDD-build-HHmm-arm64.dmg`，例如 `CodexSwitch-1.26.0916-build-0917-arm64.dmg`。正式版本經 Developer ID 簽署與 Apple 公證，Release 同時提供 `PACKAGES-SHA256SUMS` 校驗檔。
 
-App 的「關於」對話框可檢查更新；私人倉庫需先透過 `gh auth login` 登入有讀取權限的 GitHub 帳號。
+App 啟動後會在背景自動檢查更新，有新版時在主畫面提示；也可從「關於」對話框手動檢查。下載時顯示百分比、已下載大小及進度條，關閉「關於」仍可在主畫面查看。私人倉庫需先透過 `gh auth login` 登入有讀取權限的 GitHub 帳號。
+
+若前次更新留下備份，會在確認目前 App 簽章後，將舊備份保留於 App 同層的 `.codexswitch-backup-*` 目錄，再繼續更新；剛建立的備份需等待 90 秒，避免與前次安裝程序衝突。
+
+「關於」的紅字「強制更新」會直接下載並安裝最新正式版，即使版本相同或目前為較新的本機版也會重裝。下載校驗、簽章與 Apple 安全驗證仍會執行。
 
 ## 帳號用量與設定
 

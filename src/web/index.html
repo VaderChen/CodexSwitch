@@ -16,13 +16,14 @@
       <p class="hint">本機只監聽 127.0.0.1 的一次性 callback，完成後即關閉。</p>
     </section>
     <section class="accounts-section"><div class="list-heading"><div><h2>已連結帳號</h2><p id="count">0 個帳號</p></div><div class="list-actions"><button class="detect" onclick="handleExportAccounts()">匯出</button><button class="detect" onclick="handleImportAccounts()">匯入</button><button class="detect" onclick="handleDetectCurrent()">偵測目前帳號</button><button class="refresh" onclick="loadAccounts()" title="重新整理">↻</button></div></div><div id="accountList" class="account-list"></div><div id="empty" class="empty"><div class="empty-icon">◎</div><p>尚未連結帳號</p><span>完成一次登入後，帳號會顯示在這裡。</span></div></section>
+    <aside id="updateNotice" class="update-notice" hidden><button type="button" onclick="openAbout()"><span id="updateNoticeText"></span></button><progress id="downloadProgress" max="100" value="0" aria-label="更新下載進度" hidden></progress></aside>
     <footer><button class="about-link" onclick="openAbout()">About</button><span id="appVersion"><!-- APP_VERSION --></span></footer>
   </main>
 <div id="message" class="message" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="dialog" class="dialog-backdrop" hidden><div class="dialog"><h3 id="dialogTitle"></h3><p id="dialogText"></p><div class="dialog-actions"><button id="dialogCancel" class="dialog-cancel">取消</button><button id="dialogOK" class="dialog-ok">確認套用</button></div></div></div>
 <div id="settingsDialog" class="dialog-backdrop" hidden><form class="dialog settings-dialog" onsubmit="saveSettings(event)"><h3>Codex 環境設定</h3><p id="settingsEmail"></p><label for="settingsHome">CODEX_HOME</label><input id="settingsHome" type="text" autocomplete="off"><label for="settingsData">USER_DATA_DIR</label><input id="settingsData" type="text" autocomplete="off"><p class="settings-hint">留空會填入系統預設值，儲存後於下次套用生效。</p><div class="dialog-actions"><button type="button" class="dialog-cancel" onclick="$('settingsDialog').hidden=true">取消</button><button id="settingsSave" type="submit" class="dialog-ok">儲存</button></div></form></div>
 <div id="resetDialog" class="dialog-backdrop" hidden><div class="dialog"><h3>用量重置</h3><p id="resetEmail"></p><p id="resetCount"><span id="resetSpinner" class="reset-spinner" hidden></span><span id="resetCountText">讀取中…</span></p><p class="reset-hint">長按 2 秒使用 1 次重置，無法復原。</p><div id="resetCredits"></div><div class="dialog-actions"><button id="resetClose" class="dialog-cancel" onclick="closeReset()">關閉</button></div></div></div>
-<div id="aboutDialog" class="dialog-backdrop" hidden><div class="dialog about-dialog"><div class="about-heading"><h3>關於 CodexSwitch</h3><label class="hint-switch"><span>按鈕提示</span><input id="buttonHintsToggle" type="checkbox" role="switch" checked onchange="toggleButtonHints(this.checked)"><span class="switch-track" aria-hidden="true"></span></label></div><p>CodexSwitch</p><p id="aboutVersion"></p><p><button class="about-github" onclick="handleOpenGitHub()">GitHub 專案</button></p><p id="updateStatus"></p><div id="updateProgress" class="update-progress" hidden><span></span></div><div class="dialog-actions"><button class="dialog-cancel" onclick="closeAbout()">關閉</button><button id="updateButton" class="dialog-ok" onclick="handleCheckForUpdate()">檢查更新</button></div></div></div>
+<div id="aboutDialog" class="dialog-backdrop" hidden><div class="dialog about-dialog"><div class="about-heading"><h3>關於 CodexSwitch</h3><label class="hint-switch"><span>按鈕提示</span><input id="buttonHintsToggle" type="checkbox" role="switch" checked onchange="toggleButtonHints(this.checked)"><span class="switch-track" aria-hidden="true"></span></label></div><p>CodexSwitch</p><p id="aboutVersion"></p><p><button class="about-github" onclick="handleOpenGitHub()">GitHub 專案</button></p><p id="updateStatus"></p><div id="updateProgress" class="update-progress" hidden><span></span></div><div class="dialog-actions"><button class="dialog-cancel" onclick="closeAbout()">關閉</button><button id="forceUpdateButton" class="dialog-cancel" onclick="handleForceUpdate()">強制更新</button><button id="updateButton" class="dialog-ok" onclick="handleCheckForUpdate()">檢查更新</button></div></div></div>
 <div id="accountTooltip" class="account-tooltip" role="tooltip" hidden></div>
 <div id="buttonTooltip" class="account-tooltip button-tooltip" role="tooltip" hidden></div>
 <script>
@@ -42,6 +43,7 @@ async function toggleButtonHints(enabled){
 const buttonHints={
  'loginButton':'開啟瀏覽器登入 Codex 帳號','cancelLoginButton':'取消目前登入流程',
  'dialogCancel':'取消操作','dialogOK':'確認套用帳號','resetClose':'關閉用量重置',
+ 'forceUpdateButton':'直接下載並安裝最新正式版，即使版本相同也重新安裝',
  'updateButton':'檢查 GitHub Releases 是否有新版本', 'settingsSave':'儲存 Codex 環境設定，下次套用時生效'
 };
 function applyButtonTooltips(root=document){
@@ -65,16 +67,26 @@ function buttonHintText(button){return buttonDescriptions[button.textContent.tri
 function showButtonTooltip(event){if(!buttonHintsEnabled)return;const b=event.target.closest('button');if(!b)return;hideAccountTooltip();const text=buttonHintText(b);if(!text)return;const tip=$('buttonTooltip');tip.textContent=text;tip.hidden=false;const r=b.getBoundingClientRect(),box=tip.getBoundingClientRect();tip.style.left=`${Math.max(12,Math.min(r.left,innerWidth-box.width-12))}px`;tip.style.top=`${r.bottom+box.height+10<=innerHeight?r.bottom+8:Math.max(12,r.top-box.height-8)}px`;}
 function hideButtonTooltip(event){if(event.target.closest('button'))$('buttonTooltip').hidden=true;}
 document.addEventListener('mouseover',showButtonTooltip); document.addEventListener('mouseout',hideButtonTooltip);
-function openAbout(){ $('aboutVersion').textContent='版本 '+$('appVersion').textContent; $('updateStatus').textContent=''; $('updateProgress').hidden=true; $('aboutDialog').hidden=false; if(typeof window.getUpdateStatus==='function')refreshUpdateStatus(); }
+function openAbout(){ $('aboutVersion').textContent='版本 '+$('appVersion').textContent; $('updateStatus').textContent=''; $('updateProgress').hidden=true; $('aboutDialog').hidden=false; if(typeof window.getUpdateStatus==='function'){startUpdatePolling();refreshUpdateStatus();} }
 function closeAbout(){ $('aboutDialog').hidden=true; }
 async function handleOpenGitHub(){ try { if(typeof window.openGitHub!=='function') throw Error('開啟 GitHub 服務尚未就緒'); await window.openGitHub(); } catch(e) { setMessage(e.message||String(e),'error'); } }
 let updatePolling=null;
+let updateRequestBusy=false;
+let startupUpdateChecked=false;
+function startUpdatePolling(){if(updatePolling===null)updatePolling=setInterval(refreshUpdateStatus,250);}
+async function checkStartupUpdate(){
+ if(startupUpdateChecked||typeof window.checkForUpdate!=='function'||typeof window.getUpdateStatus!=='function')return;
+ startupUpdateChecked=true;
+ try{await window.checkForUpdate();startUpdatePolling();await refreshUpdateStatus();}catch(_){/* 手動檢查仍可重試。 */}
+}
 async function refreshUpdateStatus(){
+ if(updateRequestBusy)return;updateRequestBusy=true;
  try{
   const state=await window.getUpdateStatus();
   $('updateStatus').textContent=state.message||'';
   const busy=['checking','downloading','installing','restarting'].includes(state.phase);
   const button=$('updateButton');button.disabled=busy;
+  $('forceUpdateButton').disabled=busy;
   button.textContent=state.phase==='available'?'下載並安裝':'檢查更新';
   button.dataset.install=state.phase==='available'?'true':'false';
   const progress=$('updateProgress');progress.hidden=!busy;
@@ -84,8 +96,22 @@ async function refreshUpdateStatus(){
    progress.querySelector('span').style.width=percent+'%';
    $('updateStatus').textContent=`下載 ${Math.floor(percent)}%（${(state.downloaded/1048576).toFixed(1)} / ${(state.total/1048576).toFixed(1)} MB）`;
   }else{progress.querySelector('span').style.width='35%';}
+  const notice=$('updateNotice');
+  notice.hidden=!['available','downloading','installing','restarting'].includes(state.phase);
+  $('updateNoticeText').textContent=state.phase==='available'?`發現新版本 ${state.version}，點此更新`:$('updateStatus').textContent;
+  const meter=$('downloadProgress');meter.hidden=state.phase!=='downloading';
+  if(state.total>0)meter.value=Math.min(100,(state.downloaded||0)/state.total*100);else meter.removeAttribute('value');
   if(!busy){clearInterval(updatePolling);updatePolling=null;}
- }catch(e){$('updateStatus').textContent='更新服務錯誤：'+(e.message||e);$('updateButton').disabled=false;clearInterval(updatePolling);updatePolling=null;}
+ }catch(e){$('updateStatus').textContent='更新服務錯誤：'+(e.message||e);$('updateButton').disabled=false;$('forceUpdateButton').disabled=false;clearInterval(updatePolling);updatePolling=null;}
+ finally{updateRequestBusy=false;}
+}
+async function handleForceUpdate(){
+ const button=$('forceUpdateButton');if(button.disabled)return;
+ button.disabled=true;$('updateButton').disabled=true;
+ try{
+  if(typeof window.forceUpdate!=='function')throw Error('強制更新服務尚未就緒，請重新啟動 App');
+  await window.forceUpdate();startUpdatePolling();await refreshUpdateStatus();
+ }catch(e){button.disabled=false;$('updateButton').disabled=false;$('updateStatus').textContent=e.message||String(e);}
 }
 async function handleCheckForUpdate(){
  const button=$('updateButton');button.disabled=true;
@@ -258,7 +284,7 @@ async function refreshUsage(){
  finally{usagePollBusy=false;}
 }
 
-async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); if(typeof window.acknowledgeUpdateReady==='function')window.acknowledgeUpdateReady(); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
+async function loadAccounts() { try { if (typeof window.getAccounts !== 'function') { setTimeout(loadAccounts, 150); return; } const raw=await window.getAccounts(); const data=typeof raw==='string'?JSON.parse(raw):raw; if (!Array.isArray(data)) throw new Error('帳號服務回傳格式錯誤'); render(Array.isArray(data)?data:[]); if(typeof window.acknowledgeUpdateReady==='function')window.acknowledgeUpdateReady();checkStartupUpdate(); } catch(e) { setMessage('無法讀取帳號紀錄：'+(e.message||e),'error'); } }
 $('accountList').addEventListener('click',event=>{
  const button=event.target.closest('button[data-action]');
  if(!button || button.disabled)return;

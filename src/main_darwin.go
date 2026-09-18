@@ -113,6 +113,7 @@ func main() {
 	w.Bind("checkForUpdate", func() { updater.check(appVersion + " build " + appBuild) })
 	w.Bind("getUpdateStatus", updater.snapshot)
 	w.Bind("installUpdate", updater.install)
+	w.Bind("forceUpdate", func() { updater.checkMode(appVersion+" build "+appBuild, true) })
 	w.Bind("openGitHub", func() error { return openBrowser("https://github.com/VaderChen/CodexSwitch") })
 	w.Bind("openURL", func(url string) map[string]any {
 		if !allowedProjectURL(url) {

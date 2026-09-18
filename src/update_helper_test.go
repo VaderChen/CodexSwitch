@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUpdateHelperReplacesAndRollsBack(t *testing.T) {
@@ -65,5 +66,39 @@ func TestUpdateHelperKeepsBackupWithoutReady(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(target+".update.bak", "old")); err != nil || string(b) != "original" {
 		t.Fatal("must preserve working original backup")
+	}
+}
+
+func TestArchiveOldUpdateBackup(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "CodexSwitch.app")
+	backup := target + ".update.bak"
+	if err := archiveUpdateBackup(target, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	os.Mkdir(backup, 0700)
+	os.WriteFile(filepath.Join(backup, "original"), []byte("restore"), 0600)
+	if err := archiveUpdateBackup(target, time.Now()); err == nil {
+		t.Fatal("不應移動可能仍在使用中的備份")
+	}
+	if err := archiveUpdateBackup(target, time.Now().Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatal("舊備份仍擋住更新")
+	}
+	files, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".codexswitch-backup-*", "CodexSwitch.app", "original"))
+	if len(files) != 1 {
+		t.Fatal("必須保留舊版供還原")
+	}
+	data, _ := os.ReadFile(files[0])
+	if string(data) != "restore" {
+		t.Fatal("備份內容改變")
+	}
+	if err := archiveUpdateBackup(target, time.Now()); err != nil {
+		t.Fatal("再次更新應可通過")
+	}
+	os.Symlink(filepath.Dir(target), backup)
+	if err := archiveUpdateBackup(target, time.Now().Add(2*time.Minute)); err == nil {
+		t.Fatal("不可操作備份符號連結")
 	}
 }

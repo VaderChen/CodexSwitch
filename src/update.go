@@ -141,6 +141,9 @@ func githubRequest(ctx context.Context, url, token, accept string) (*http.Respon
 	return client.Do(req)
 }
 func fetchRelease(ctx context.Context, endpoint, token, current, arch string) (releaseInfo, releaseAsset, bool, error) {
+	return fetchReleaseMode(ctx, endpoint, token, current, arch, false)
+}
+func fetchReleaseMode(ctx context.Context, endpoint, token, current, arch string, force bool) (releaseInfo, releaseAsset, bool, error) {
 	var r releaseInfo
 	resp, err := githubRequest(ctx, endpoint, token, "application/vnd.github+json")
 	if err != nil {
@@ -160,7 +163,7 @@ func fetchRelease(ctx context.Context, endpoint, token, current, arch string) (r
 		return r, releaseAsset{}, false, errors.New("此版本不是正式發布版")
 	}
 	newer, err := newerVersion(r.Tag, current)
-	if err != nil || !newer {
+	if err != nil || (!newer && !force) {
 		return r, releaseAsset{}, false, err
 	}
 	if arch == "amd64" {
@@ -181,7 +184,8 @@ func fetchRelease(ctx context.Context, endpoint, token, current, arch string) (r
 	}
 	return r, releaseAsset{}, false, errors.New("Release 未提供符合本機架構的 CodexSwitch DMG")
 }
-func (u *updateService) check(current string) {
+func (u *updateService) check(current string) { u.checkMode(current, false) }
+func (u *updateService) checkMode(current string, force bool) {
 	u.mu.Lock()
 	if u.state.Phase == "checking" || u.state.Phase == "downloading" || u.state.Phase == "installing" || u.state.Phase == "restarting" {
 		u.mu.Unlock()
@@ -193,13 +197,12 @@ func (u *updateService) check(current string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
 		token := githubToken()
-		r, a, newer, err := fetchRelease(ctx, releaseAPI+"/latest", token, current, runtime.GOARCH)
+		r, a, newer, err := fetchReleaseMode(ctx, releaseAPI+"/latest", token, current, runtime.GOARCH, force)
 		if err != nil {
 			u.fail(err)
 			return
 		}
 		u.mu.Lock()
-		defer u.mu.Unlock()
 		u.asset, u.version, u.token = a, r.Tag, token
 		u.state.Version = r.Tag
 		if newer {
@@ -208,6 +211,10 @@ func (u *updateService) check(current string) {
 		} else {
 			u.state.Phase = "current"
 			u.state.Message = "目前已是最新版本。"
+		}
+		u.mu.Unlock()
+		if force && newer {
+			u.install()
 		}
 	}()
 }

@@ -59,8 +59,8 @@ func installedBundle() (string, error) {
 	if _, err = bundleTeam(ctx, target); err != nil {
 		return "", err
 	}
-	if _, err = os.Lstat(target + ".update.bak"); !os.IsNotExist(err) {
-		return "", errors.New("已有更新備份，請先確認前次更新結果")
+	if err = archiveUpdateBackup(target, time.Now()); err != nil {
+		return "", err
 	}
 	probe, err := os.MkdirTemp(filepath.Dir(target), ".codexswitch-write-check-*")
 	if err != nil {
@@ -68,6 +68,35 @@ func installedBundle() (string, error) {
 	}
 	os.Remove(probe)
 	return target, nil
+}
+
+// 目前 App 已完成簽章驗證；封存殘留備份，不刪除可供還原的舊版。
+func archiveUpdateBackup(target string, now time.Time) error {
+	backup := target + ".update.bak"
+	info, err := os.Lstat(backup)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("更新備份不是一般目錄，請手動檢查")
+	}
+	// 舊 helper 最多等待 30 秒，避開仍可能執行的安裝工作。
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || now.Sub(time.Unix(stat.Ctimespec.Sec, stat.Ctimespec.Nsec)) < 90*time.Second {
+		return errors.New("前次更新仍可能進行中，請等待 90 秒後重試")
+	}
+	archive, err := os.MkdirTemp(filepath.Dir(target), ".codexswitch-backup-*")
+	if err != nil {
+		return errors.New("無法封存舊備份，請確認 App 目錄可寫入")
+	}
+	if err = os.Rename(backup, filepath.Join(archive, filepath.Base(target))); err != nil {
+		os.Remove(archive)
+		return err
+	}
+	return nil
 }
 
 // Helper waits for this process to exit, retains the original App until reopening succeeds.
