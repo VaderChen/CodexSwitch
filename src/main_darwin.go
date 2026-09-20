@@ -34,11 +34,26 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer store.close()
 	manager := newLoginManager(store)
 	usage := newUsageService()
 	defer usage.cancel()
 	w := webview.New(true)
 	defer w.Destroy()
+	billing := newBillingBridge(store, newBillingService(), func(requestID string, result any) {
+		data, err := json.Marshal(result)
+		if err != nil {
+			data = []byte(`{"error":"帳單回應格式無效"}`)
+		}
+		rid, _ := json.Marshal(requestID)
+		w.Dispatch(func() {
+			w.Eval("window.receiveBillingResult && window.receiveBillingResult(" + string(rid) + "," + string(data) + ")")
+		})
+	})
+	defer billing.close()
+	w.Bind("queryBilling", billing.query)
+	w.Bind("openBillingInvoice", billing.openInvoice)
+	w.Bind("cancelBilling", billing.cancelRequest)
 	w.SetTitle("CodexSwitch")
 	w.SetSize(760, 500, webview.HintNone)
 	configureNativeWindow(w.Window())

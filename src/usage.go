@@ -32,15 +32,17 @@ type accountUsage struct {
 type usageEntry struct {
 	value     accountUsage
 	attempted time.Time
+	requestID uint64
 }
 type usageService struct {
-	mu       sync.Mutex
-	cache    map[string]usageEntry
-	slots    chan struct{}
-	ctx      context.Context
-	cancel   context.CancelFunc
-	client   *http.Client
-	endpoint string
+	mu            sync.Mutex
+	cache         map[string]usageEntry
+	nextRequestID uint64
+	slots         chan struct{}
+	ctx           context.Context
+	cancel        context.CancelFunc
+	client        *http.Client
+	endpoint      string
 }
 
 func newUsageService() *usageService {
@@ -58,11 +60,14 @@ func (s *usageService) snapshot(accounts []Account) map[string]accountUsage {
 	for _, a := range accounts {
 		present[a.ID] = true
 		entry := s.cache[a.ID]
-		if !entry.value.Loading && time.Since(entry.attempted) >= time.Minute {
+		if entry.attempted.IsZero() || (!entry.value.Loading && time.Since(entry.attempted) >= time.Minute) {
 			entry.value.Loading = true
 			entry.attempted = time.Now()
+			// 跨帳號共用遞增序號，刪除後重建相同 ID 也不會沿用舊請求。
+			s.nextRequestID++
+			entry.requestID = s.nextRequestID
 			s.cache[a.ID] = entry
-			go s.refresh(a)
+			go s.refresh(a, entry.requestID)
 		}
 		result[a.ID] = entry.value
 	}
@@ -73,7 +78,7 @@ func (s *usageService) snapshot(accounts []Account) map[string]accountUsage {
 	}
 	return result
 }
-func (s *usageService) refresh(a Account) {
+func (s *usageService) refresh(a Account, requestID uint64) {
 	select {
 	case s.slots <- struct{}{}:
 	case <-s.ctx.Done():
@@ -84,10 +89,15 @@ func (s *usageService) refresh(a Account) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, exists := s.cache[a.ID]
-	if !exists {
+	if !exists || entry.requestID != requestID {
 		return
 	}
 	entry.value.Loading = false
+	// 重置已使這次查詢失效；保留清零時間，讓下一次 snapshot 立即重查。
+	if entry.attempted.IsZero() {
+		s.cache[a.ID] = entry
+		return
+	}
 	if err != nil {
 		entry.value.Error = err.Error()
 	} else {

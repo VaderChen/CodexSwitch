@@ -3,7 +3,7 @@
 版本 1.1  
 Copyright (C) 2026 VaderChen. 保留所有權利。
 
-**繁體中文** · [English](LICENSE.en.md) · [日本語](LICENSE.ja.md) · [한국어](LICENSE.ko.md)
+**繁體中文**
 
 ## 1. 適用範圍
 

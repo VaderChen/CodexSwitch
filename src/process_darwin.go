@@ -4,6 +4,7 @@ package main
 
 /*
 #include <stdlib.h>
+#include <unistd.h>
 char *codexswitch_instances(void);
 char *codexswitch_procargs(int pid, int *length);
 int codexswitch_terminate_instance(int pid, double started);
@@ -15,6 +16,16 @@ import (
 	"fmt"
 	"unsafe"
 )
+
+func filesystemCaseSensitive(path string) (bool, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	value, err := C.pathconf(cpath, C._PC_CASE_SENSITIVE)
+	if value < 0 {
+		return false, fmt.Errorf("無法確認檔案系統大小寫規則：%s（%v）", path, err)
+	}
+	return value != 0, nil
+}
 
 func runningCodexInstances() ([]codexInstance, error) {
 	raw := C.codexswitch_instances()

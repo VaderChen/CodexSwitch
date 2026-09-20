@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="${0:A:h}"
 cd "$SCRIPT_DIR"
 
-pkill -x CodexSwitch >/dev/null 2>&1 || true
 "$SCRIPT_DIR/build.command"
+pkill -x CodexSwitch >/dev/null 2>&1 || true
 
 nohup open -a "$SCRIPT_DIR/dist/CodexSwitch.app" --args >"$SCRIPT_DIR/dist/CodexSwitch.log" 2>&1 &
 disown

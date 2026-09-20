@@ -94,7 +94,9 @@ func accountIsRunning(a Account, running []Account) bool {
 		return false
 	}
 	for _, r := range running {
-		if strings.EqualFold(a.Email, r.Email) && home == r.CodexHome && data == r.UserDataDir {
+		sameHome, homeErr := sameFilesystemPath(home, r.CodexHome)
+		sameData, dataErr := sameFilesystemPath(data, r.UserDataDir)
+		if homeErr == nil && dataErr == nil && strings.EqualFold(a.Email, r.Email) && sameHome && sameData {
 			return true
 		}
 	}
@@ -170,6 +172,7 @@ func environmentFile(a Account, authPath string) []byte {
 		"export CODEX_REFRESH_TOKEN=" + shellQuote(a.RefreshToken) + "\n"
 	if a.UserDataDir != "" {
 		text += "export USER_DATA_DIR=" + shellQuote(a.UserDataDir) + "\n"
+		text += "export CODEX_USER_DATA_DIR=" + shellQuote(a.UserDataDir) + "\n"
 	}
 	if key != "" {
 		text += "export CODEX_API_KEY=" + shellQuote(key) + "\n"
@@ -199,15 +202,31 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 		return switchResult{}, err
 	}
 	authPath := filepath.Join(home, "auth.json")
-	if err != nil {
-		return switchResult{}, err
-	}
 	authPath, err = filepath.Abs(authPath)
 	if err != nil {
 		return switchResult{}, err
 	}
 	if validated, err := accountFromAuth(target.Auth); err != nil || !strings.EqualFold(validated.Email, target.Email) {
 		return switchResult{}, errors.New("此帳號的登入憑證不完整或不一致，請重新偵測")
+	}
+	envPath := os.Getenv("CODEX_SWITCH_ENV_FILE")
+	if envPath == "" {
+		envPath = filepath.Join(filepath.Dir(m.store.path), "current-account.env")
+	}
+	envPath, err = absoluteOutputPath(envPath)
+	if err != nil {
+		return switchResult{}, err
+	}
+	storePath, err := filepath.Abs(m.store.path)
+	if err != nil {
+		return switchResult{}, err
+	}
+	profilePath, err := filepath.Abs(m.profilePath())
+	if err != nil {
+		return switchResult{}, err
+	}
+	if err := validateFileTargets([]string{authPath, envPath, profilePath, storePath, filepath.Join(filepath.Dir(storePath), ".accounts.lock")}); err != nil {
+		return switchResult{}, err
 	}
 	if err := closeTargetCodex(home, userData, runningCodexInstances, terminateCodexInstance); err != nil {
 		return switchResult{}, err
@@ -255,20 +274,9 @@ func (m *loginManager) useAccount(id string) (switchResult, error) {
 	if err != nil {
 		return switchResult{}, err
 	}
-	envPath := os.Getenv("CODEX_SWITCH_ENV_FILE")
-	if envPath == "" {
-		envPath = filepath.Join(filepath.Dir(m.store.path), "current-account.env")
-	}
-	envPath, err = filepath.Abs(envPath)
-	if err != nil {
-		return switchResult{}, err
-	}
-	if filepath.Clean(envPath) == filepath.Clean(authPath) || filepath.Clean(envPath) == filepath.Clean(m.store.path) {
-		return switchResult{}, errors.New("環境設定檔不可與帳號或登入檔使用相同路徑")
-	}
 	validated.UserDataDir = userData
 	profile, _ := json.Marshal(activeProfile{AuthPath: authPath, UserDataDir: userData})
-	if err = replaceFiles([]fileUpdate{{authPath, next}, {envPath, environmentFile(validated, authPath)}, {m.profilePath(), profile}}); err != nil {
+	if err = replaceFiles([]fileUpdate{{authPath, next}, {envPath, environmentFile(validated, authPath)}, {profilePath, profile}}); err != nil {
 		return switchResult{}, err
 	}
 	// Start Codex with the same per-process environment model as runMyCodex.command.
@@ -289,6 +297,13 @@ type fileUpdate struct {
 
 // Stage private files, back up originals, and roll back on a failed commit.
 func replaceFiles(updates []fileUpdate) error {
+	paths := make([]string, len(updates))
+	for i, u := range updates {
+		paths[i] = u.path
+	}
+	if err := validateFileTargets(paths); err != nil {
+		return err
+	}
 	type staged struct {
 		fileUpdate
 		temp   string

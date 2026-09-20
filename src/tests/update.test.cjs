@@ -5,9 +5,9 @@ const vm=require('node:vm');
 function setup(){
  const elements={};for(const id of ['aboutVersion','appVersion','updateStatus','updateProgress','aboutDialog','updateButton','forceUpdateButton','updateNotice','updateNoticeText','downloadProgress'])elements[id]={textContent:'',hidden:true,style:{},dataset:{},classList:{toggle(){}},querySelector(){return {style:{}}},removeAttribute(){}};
  let calls=0,polling=0,state={phase:'checking'};
- const c=vm.createContext({document:{getElementById:id=>elements[id]},window:{checkForUpdate:async()=>{calls++},getUpdateStatus:async()=>state},setInterval:()=>++polling,clearInterval(){}});
+ const c=vm.createContext({document:{getElementById:id=>elements[id],querySelectorAll:()=>[]},window:{checkForUpdate:async()=>{calls++},getUpdateStatus:async()=>state},setInterval:()=>++polling,clearInterval(){}});
  const html=fs.readFileSync(require('node:path').join(__dirname,'../web/index.html'),'utf8');
- const script=html.slice(html.indexOf('function openAbout()'),html.indexOf('function setMessage('));
+ const script=html.slice(html.indexOf('let activeModal='),html.indexOf('function setMessage('));
  vm.runInContext('const $=id=>document.getElementById(id);'+script,c);
  return {c,e:elements,state:s=>state=s,calls:()=>calls,polling:()=>polling};
 }

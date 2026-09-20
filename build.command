@@ -10,14 +10,21 @@ fi
 VERSION_NUMBER="${BUILD_VERSION% build *}"
 BUILD_TIME="${BUILD_VERSION##* build }"
 DIST_ROOT="$SCRIPT_DIR/dist"
+DIST_BACKUP="$SCRIPT_DIR/dist.bak"
 if [[ -L "$DIST_ROOT" || ( -e "$DIST_ROOT" && ! -d "$DIST_ROOT" ) ]]; then
  print -u2 '錯誤：dist 必須是一般目錄，不可為符號連結。'
  exit 1
 fi
-print '清空 dist…'
-/bin/rm -rf -- "$DIST_ROOT"
-mkdir -p "$DIST_ROOT"
-APP_DIR="$DIST_ROOT/CodexSwitch.app"
+if [[ -e "$DIST_BACKUP" || -L "$DIST_BACKUP" ]]; then
+ print -u2 '錯誤：dist.bak 已存在，請先確認或還原上次建置的備份。'
+ exit 1
+fi
+# 在替換既有產物前完成工具鏈檢查與整個建置。
+(cd "$SRC_DIR" && go list -m >/dev/null)
+BUILD_STAGE="$(mktemp -d "$SCRIPT_DIR/.codexswitch-build.XXXXXX")"
+trap '/bin/rm -rf -- "$BUILD_STAGE"' EXIT
+mkdir -p "$BUILD_STAGE/dist"
+APP_DIR="$BUILD_STAGE/dist/CodexSwitch.app"
 CONTENTS="$APP_DIR/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$SRC_DIR/assets/CodexSwitch.icns" "$CONTENTS/Resources/CodexSwitch.icns"
@@ -44,4 +51,16 @@ chmod +x "$CONTENTS/MacOS/CodexSwitch"
 # Remove AppleDouble metadata files created on external macOS volumes; they break codesign/DMG packaging.
 find "$APP_DIR" -name '._*' -type f -delete
 find "$APP_DIR" -name '._*' -type d -prune -exec rmdir {} + 2>/dev/null || true
-printf '%s\n' "編譯完成：$APP_DIR"
+/usr/bin/plutil -lint "$CONTENTS/Info.plist" >/dev/null
+if [[ -d "$DIST_ROOT" ]]; then
+ /bin/mv -- "$DIST_ROOT" "$DIST_BACKUP"
+fi
+if ! /bin/mv -- "$BUILD_STAGE/dist" "$DIST_ROOT"; then
+ if [[ -d "$DIST_BACKUP" && ! -e "$DIST_ROOT" && ! -L "$DIST_ROOT" ]]; then
+  /bin/mv -- "$DIST_BACKUP" "$DIST_ROOT" || print -u2 '還原失敗，請保留 dist.bak 備份。'
+ fi
+ print -u2 '錯誤：無法替換 dist，請檢查檔案權限。'
+ exit 1
+fi
+if [[ -d "$DIST_BACKUP" ]]; then /bin/rm -rf -- "$DIST_BACKUP"; fi
+printf '%s\n' "編譯完成：$DIST_ROOT/CodexSwitch.app"

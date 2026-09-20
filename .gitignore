@@ -1,9 +1,15 @@
 # Local secrets and generated files
 /ref/
 /dist/
+/.codexswitch-build.*/
 *.bak
 .DS_Store
 ._*
 
 # 本機簽署與封裝腳本
 /pack.command
+
+# 本機測試產物與探索紀錄；GitHub 僅保留文件摘要及正式測試
+/docs/**/evidence/
+/docs/**/*-evidence/
+/docs/subscription-smoke-*/

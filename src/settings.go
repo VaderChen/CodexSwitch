@@ -21,21 +21,32 @@ func normalizeDirectory(value string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		value = filepath.Join(home, strings.TrimPrefix(value, "~/"))
-		if strings.HasSuffix(value, "/~") {
+		if value == "~" {
 			value = home
+		} else {
+			value = home + string(filepath.Separator) + strings.TrimPrefix(value, "~/")
 		}
 	}
 	if !filepath.IsAbs(value) {
 		return "", errors.New("請輸入絕對路徑或以 ~/ 開頭的目錄")
 	}
-	value = filepath.Clean(value)
 	if info, err := os.Stat(value); err == nil && !info.IsDir() {
 		return "", errors.New("指定路徑不是目錄")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	return value, nil
+	resolved, err := canonicalProcessPath(value)
+	if err != nil {
+		return "", err
+	}
+	for _, part := range strings.Split(value, string(filepath.Separator)) {
+		if part == ".." {
+			return resolved, nil
+		}
+	}
+	// Preserve the user's symlink spelling unless parent traversal requires
+	// resolving it before later filepath.Join calls can clean the path.
+	return filepath.Clean(value), nil
 }
 
 func (s *accountStore) saveSettings(id, home, data string) error {
@@ -66,10 +77,10 @@ func accountDirectories(a Account) (string, string, error) {
 	}
 	codex, data := strings.TrimSpace(a.CodexHome), strings.TrimSpace(a.UserDataDir)
 	if codex == "" {
-		codex = filepath.Join(home, ".codex")
+		codex = home + "/.codex"
 	}
 	if data == "" {
-		data = filepath.Join(home, "Library", "Application Support", "Codex")
+		data = home + "/Library/Application Support/Codex"
 	}
 	codex, err = normalizeDirectory(codex)
 	if err != nil {

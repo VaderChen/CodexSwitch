@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -58,20 +59,43 @@ func canonicalProcessPath(path string) (string, error) {
 	if !filepath.IsAbs(path) {
 		return "", errors.New("目錄不是絕對路徑")
 	}
-	path = filepath.Clean(path)
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		return resolved, nil
-	}
-	// 未建立的目錄也必須解析既有父目錄的符號連結。
-	parent := filepath.Dir(path)
-	if parent == path {
-		return path, nil
-	}
-	base, err := canonicalProcessPath(parent)
-	if err != nil {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	return filepath.Join(base, filepath.Base(path)), nil
+	// Resolve each raw component before handling "..": lexical cleaning first
+	// would traverse the symlink's parent instead of the target's parent.
+	resolved := string(filepath.Separator)
+	for _, part := range strings.Split(path, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			info, err := os.Stat(resolved)
+			if err != nil {
+				return "", err
+			}
+			if !info.IsDir() {
+				return "", errors.New("上層路徑不是目錄")
+			}
+			resolved = filepath.Dir(resolved)
+			continue
+		}
+		next := filepath.Join(resolved, part)
+		info, err := os.Lstat(next)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			next, err = filepath.EvalSymlinks(next)
+			if err != nil {
+				return "", err // dangling symlinks cannot safely identify a future path
+			}
+		}
+		resolved = next
+	}
+	return resolved, nil
 }
 func processDirectories(args []string, env map[string]string) (string, string, error) {
 	home := env["CODEX_HOME"]
@@ -79,7 +103,7 @@ func processDirectories(args []string, env map[string]string) (string, string, e
 		if !filepath.IsAbs(env["HOME"]) {
 			return "", "", errors.New("無法判定預設 HOME")
 		}
-		home = filepath.Join(env["HOME"], ".codex")
+		home = env["HOME"] + "/.codex"
 	}
 	data := env["CODEX_USER_DATA_DIR"]
 	if data == "" {
@@ -104,7 +128,7 @@ func processDirectories(args []string, env map[string]string) (string, string, e
 		if !filepath.IsAbs(env["HOME"]) {
 			return "", "", errors.New("無法判定預設 HOME")
 		}
-		data = filepath.Join(env["HOME"], "Library", "Application Support", "Codex")
+		data = env["HOME"] + "/Library/Application Support/Codex"
 	}
 	h, err := canonicalProcessPath(home)
 	if err != nil {
@@ -124,8 +148,16 @@ func selectCodexInstances(list []codexInstance, home, data string) ([]codexInsta
 	}
 	var targets []codexInstance
 	for _, p := range list {
-		if p.Home != h {
-			if p.Data == d {
+		sameHome, err := sameFilesystemPath(p.Home, h)
+		if err != nil {
+			return nil, err
+		}
+		if !sameHome {
+			sameData, err := sameFilesystemPath(p.Data, d)
+			if err != nil {
+				return nil, err
+			}
+			if sameData {
 				return nil, errors.New("另一個 CODEX_HOME 正在使用相同 USER_DATA_DIR，請為此帳號設定獨立的資料目錄")
 			}
 			continue

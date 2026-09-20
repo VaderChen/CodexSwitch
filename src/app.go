@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -55,6 +56,8 @@ type accountStore struct {
 	mu       sync.Mutex
 	accounts []Account
 	path     string
+	lock     *os.File
+	closed   bool
 }
 
 func newAccountStore() (*accountStore, error) {
@@ -66,18 +69,49 @@ func newAccountStore() (*accountStore, error) {
 	if dir == "" {
 		dir = filepath.Join(base, "CodexSwitch")
 	}
+	dir, err = absoluteRawPath(dir)
+	if err == nil {
+		dir, err = canonicalProcessPath(dir)
+	}
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
 	s := &accountStore{path: filepath.Join(dir, "accounts.json")}
-	if data, err := os.ReadFile(s.path); err == nil && len(data) > 0 {
-		if err := json.Unmarshal(data, &s.accounts); err != nil {
-			return nil, fmt.Errorf("讀取帳號資料失敗: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	s.lock, err = lockAccountStore(dir)
+	if err != nil {
 		return nil, err
 	}
+	data, err := os.ReadFile(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return s, nil
+	}
+	if err == nil {
+		if len(bytes.TrimSpace(data)) == 0 {
+			err = errors.New("帳號資料檔為空，請從備份還原 accounts.json")
+		} else {
+			err = json.Unmarshal(data, &s.accounts)
+		}
+	}
+	if err != nil {
+		_ = s.close()
+		return nil, fmt.Errorf("讀取帳號資料失敗: %w", err)
+	}
 	return s, nil
+}
+
+func (s *accountStore) close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	if s.lock == nil {
+		return nil
+	}
+	err := s.lock.Close()
+	s.lock = nil
+	return err
 }
 
 func (s *accountStore) list() []Account {
@@ -138,19 +172,14 @@ func (s *accountStore) remove(id string) (err error) {
 }
 
 func (s *accountStore) saveLocked() error {
+	if s.closed {
+		return errors.New("帳號資料已關閉，無法繼續儲存")
+	}
 	data, err := json.MarshalIndent(s.accounts, "", "  ")
 	if err != nil {
 		return err
 	}
-	// Write through a .bak file first so an interrupted write cannot corrupt the store.
-	bak := s.path + ".bak"
-	if err := os.WriteFile(bak, data, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(bak, s.path); err != nil {
-		return err
-	}
-	return nil
+	return writePrivateFile(s.path, data)
 }
 
 type tokenResponse struct {
@@ -407,16 +436,36 @@ func openBrowser(target string) error {
 }
 
 func (s *accountStore) exportFile() error {
-	data, err := json.MarshalIndent(s.list(), "", "  ")
-	if err != nil {
-		return err
-	}
 	cmd := exec.Command("osascript", "-e", `POSIX path of (choose file name with prompt "匯出 CodexSwitch 帳號" default name "accounts.json")`)
 	out, err := cmd.Output()
 	if err != nil {
 		return err
 	}
-	path := strings.TrimSpace(string(out))
+	return s.exportTo(strings.TrimSpace(string(out)))
+}
+
+func (s *accountStore) exportTo(path string) error {
+	path, err := absoluteOutputPath(path)
+	if err != nil {
+		return err
+	}
+	storePath, err := filepath.Abs(s.path)
+	if err != nil {
+		return err
+	}
+	for _, reserved := range []string{storePath, filepath.Join(filepath.Dir(storePath), ".accounts.lock")} {
+		same, err := sameFilesystemPath(path, reserved)
+		if err != nil {
+			return err
+		}
+		if same {
+			return errors.New("匯出位置不可覆寫目前使用的帳號資料或鎖定檔")
+		}
+	}
+	data, err := json.MarshalIndent(s.list(), "", "  ")
+	if err != nil {
+		return err
+	}
 	return writePrivateFile(path, data)
 }
 
@@ -507,7 +556,8 @@ func (s *accountStore) reorder(ids []string) error {
 
 // 同目錄暫存後原子替換；既有檔案權限不會沿用。
 func writePrivateFile(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".codexswitch-export-*")
+	// 隨機且獨占建立的 .bak，不使用可能殘留或指向其他檔案的固定備份。
+	f, err := os.CreateTemp(filepath.Dir(path), ".codexswitch-*.bak")
 	if err != nil {
 		return err
 	}
